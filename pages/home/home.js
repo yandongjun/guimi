@@ -121,6 +121,7 @@ Page({
         outfit,
         quota: outfit.quota
       });
+      this.pollGeneratedImage(outfit.imageJob);
       wx.showToast({ title: "米粒搭好啦", icon: "success" });
     } catch (err) {
       this.setData({ generating: false });
@@ -134,6 +135,35 @@ Page({
 
   regenerate() {
     this.generateForScene(this.data.activeScene);
+  },
+
+  pollGeneratedImage(imageJob, attempt = 0) {
+    if (!imageJob || !imageJob.id) return;
+    if (imageJob.status === "ready" && imageJob.imageUrl) {
+      this.setData({
+        "outfit.tryOnImage": imageJob.imageUrl,
+        "outfit.tryOnAsset": imageJob.imageAsset || null,
+        "outfit.imageJob": imageJob
+      });
+      return;
+    }
+    if (["failed", "incomplete"].includes(imageJob.status) || attempt >= 12) {
+      if (imageJob.errorMessage) {
+        wx.showToast({ title: imageJob.errorMessage, icon: "none" });
+      }
+      return;
+    }
+    clearTimeout(this.imageJobTimer);
+    this.imageJobTimer = setTimeout(async () => {
+      try {
+        const updated = await api.pollImageJob(imageJob.id);
+        this.pollGeneratedImage(updated, attempt + 1);
+      } catch (err) {
+        if (attempt < 2) {
+          this.pollGeneratedImage(imageJob, attempt + 1);
+        }
+      }
+    }, attempt === 0 ? 1200 : 4000);
   },
 
   closeQuotaModal() {
@@ -217,5 +247,9 @@ Page({
 
   goCapture() {
     wx.switchTab({ url: "/pages/capture/capture" });
+  },
+
+  onUnload() {
+    clearTimeout(this.imageJobTimer);
   }
 });

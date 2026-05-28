@@ -242,6 +242,57 @@ function imageJobPayload(userId, scene) {
   };
 }
 
+function ensureImageJob(userId, scene) {
+  const payload = imageJobPayload(userId, scene);
+  const existing = imageTaskStore.listJobs().find((item) => item.id === payload.targetPath.split("/").pop().replace(/\.(png|jpg|jpeg)$/i, "") || item.id === `${userId}-${scene}`);
+  if (existing) return existing;
+  const manual = mock.manualImageJobs.find((item) => item.userId === userId && item.scene === scene);
+  return imageTaskStore.createJob({
+    ...payload,
+    id: manual ? manual.id : undefined,
+    source: "outfit_generate"
+  });
+}
+
+function publicImageJob(job, req) {
+  if (!job) return null;
+  let imageAsset = job.imageAsset || null;
+  if (!imageAsset && job.imageUrl) {
+    imageAsset = assetStore.getAssetByLocalPath(job.imageUrl, req);
+  }
+  return {
+    id: job.id,
+    status: job.status,
+    imageUrl: imageAsset ? imageAsset.previewUrl : job.imageUrl,
+    imageAsset,
+    remoteImageUrl: job.remoteImageUrl || "",
+    errorMessage: job.errorMessage || ""
+  };
+}
+
+async function submitPendingImageJob(job, req) {
+  if (!job || job.status !== "pending") return job;
+  if (!process.env.MOXING_API_KEY) return job;
+  const validation = validateImagePromptContract(job);
+  if (!validation.valid) {
+    return markPromptContractFailure(job, validation);
+  }
+  imageTaskStore.updateJob(job.id, { status: "submitted", promptContractStatus: "valid", promptContractMissing: [], errorMessage: "" });
+  const result = await moxingImage.submitImage(job);
+  const localized = await localizeImageResult(job, result, req);
+  return imageTaskStore.updateJob(job.id, {
+    status: localized.status,
+    imageUrl: localized.imageUrl || job.imageUrl || "",
+    imageAsset: localized.imageAsset || job.imageAsset || null,
+    remoteImageUrl: localized.remoteImageUrl || job.remoteImageUrl || "",
+    localImageBytes: localized.localImageBytes || job.localImageBytes || 0,
+    providerTaskId: result.taskId || "",
+    providerRequest: result.providerRequest,
+    providerResponse: result.providerResponse,
+    errorMessage: ""
+  });
+}
+
 function markPromptContractFailure(job, validation) {
   return imageTaskStore.updateJob(job.id, {
     status: "incomplete",
@@ -461,7 +512,25 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     state.generationUsed += 1;
-    const payload = generationPayload(body.scene || "上班", req);
+    const scene = body.scene || "上班";
+    const payload = generationPayload(scene, req);
+    let job = ensureImageJob(body.userId || "user-a", scene);
+    try {
+      job = await submitPendingImageJob(job, req);
+    } catch (error) {
+      job = imageTaskStore.updateJob(job.id, {
+        status: "failed",
+        errorMessage: error.message || "image generation submit failed",
+        providerRequest: error.providerRequest || job.providerRequest,
+        providerResponse: error.providerResponse || null
+      });
+    }
+    const publicJob = publicImageJob(job, req);
+    if (publicJob && publicJob.imageUrl) {
+      payload.tryOnImage = publicJob.imageUrl;
+      payload.tryOnAsset = publicJob.imageAsset || payload.tryOnAsset;
+    }
+    payload.imageJob = publicJob;
     payload.quota = quota();
     sendJson(res, 200, ok(payload));
     return;
