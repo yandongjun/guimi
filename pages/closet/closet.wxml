@@ -1,0 +1,52 @@
+<view class="page closet-page">
+  <view wx:if="{{stats}}" class="card closet-header">
+    <view class="row space-between">
+      <view>
+        <text class="eyebrow">衣橱资产</text>
+        <view class="title">{{stats.total}} 件已整理</view>
+      </view>
+      <view class="readiness">{{stats.readiness}}%</view>
+    </view>
+    <view class="subtitle">米粒会优先使用已有衣服，只在关键缺口上给你找替代灵感。</view>
+    <view class="color-row">
+      <text wx:for="{{stats.colors}}" wx:key="*this" class="pill">{{item}}</text>
+    </view>
+  </view>
+
+  <view class="category-row section">
+    <button
+      wx:for="{{categories}}"
+      wx:key="key"
+      data-key="{{item.key}}"
+      bindtap="setCategory"
+      class="category {{activeCategory === item.key ? 'active' : ''}}"
+    >{{item.label}}</button>
+  </view>
+
+  <view wx:if="{{loading}}" class="card section empty">正在打开衣橱...</view>
+
+  <view wx:else class="closet-list section">
+    <block wx:for="{{items}}" wx:key="id">
+      <view wx:if="{{activeCategory === 'all' || activeCategory === item.category}}" class="card item-card">
+        <view class="item-visual color-{{index}}"></view>
+        <view class="item-main">
+          <view class="item-name">{{item.name}}</view>
+          <view class="item-meta">{{item.color}} · 保暖 {{item.warmth}} · 正式 {{item.formality}}</view>
+          <view class="tag-row">
+            <text wx:for="{{item.tags}}" wx:for-item="tag" wx:key="*this" class="mini-tag">{{tag}}</text>
+          </view>
+        </view>
+      </view>
+    </block>
+  </view>
+
+  <view class="card section">
+    <view class="row space-between">
+      <text class="eyebrow">衣橱缺口</text>
+      <button class="tiny-button" bindtap="addMockItem">加衣物</button>
+    </view>
+    <view wx:for="{{gaps}}" wx:key="*this" class="gap-item">{{item}}</view>
+  </view>
+
+  <mili-chat context="closet" />
+</view>

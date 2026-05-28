@@ -1,0 +1,102 @@
+<view class="home-page theme-page-{{theme}}">
+  <view wx:if="{{loading}}" class="loading-card">米粒正在翻你的衣橱...</view>
+
+  <block wx:else>
+    <view class="cover theme-{{theme}}" bindtap="goDaily">
+      <image class="model" src="{{outfit.tryOnImage}}" mode="aspectFit"></image>
+      <view class="photo-soften"></view>
+      <view class="cover-frame"></view>
+      <view class="cover-rail"></view>
+
+      <view class="topbar">
+        <text class="date">{{todayLabel}}</text>
+        <text class="weather-line">{{weatherSummary}}</text>
+      </view>
+
+      <view class="chips">
+        <text class="chip primary">{{dailyAura.zodiac}}幸运色：{{dailyAura.luckyColor}}</text>
+      </view>
+
+      <view class="theme-control" catchtap="toggleThemeMenu">
+        <text class="chip select">主题 {{themeLabel}}</text>
+      </view>
+
+      <view wx:if="{{themeMenuOpen}}" class="theme-menu" catchtap="noop">
+        <view
+          wx:for="{{themeOptions}}"
+          wx:key="key"
+          data-theme="{{item.key}}"
+          catchtap="setTheme"
+          class="theme-option {{theme === item.key ? 'active' : ''}}"
+        >
+          <view class="theme-dot dot-{{item.key}}"></view>
+          <text>{{item.label}}</text>
+        </view>
+      </view>
+
+      <view class="headline">{{outfit.displayTitle}}</view>
+      <view class="mood">今天走{{outfit.displayMood}}</view>
+
+      <view class="reason-stack">
+        <view wx:for="{{outfit.summaryReasons}}" wx:key="name" class="reason">
+          <text class="icon">{{index === 0 ? '♙' : index === 1 ? '◒' : '◌'}}</text>
+          <view>
+            <text class="reason-name">{{item.name}}</text>
+            <text class="reason-copy">{{item.copy}}</text>
+          </view>
+        </view>
+      </view>
+
+      <text class="tag shoulder">{{outfit.visualNotes[0].text}}</text>
+      <text class="tag waist">{{outfit.visualNotes[1].text}}</text>
+      <text class="look-code">LOOK 01</text>
+
+      <view class="palette">
+        <view class="swatch cream"></view>
+        <view class="swatch sage"></view>
+        <view class="swatch denim"></view>
+      </view>
+      <view class="brand-mark">
+        <view class="brand-cn">
+          <text>闺</text>
+          <text>蜜</text>
+        </view>
+        <text class="brand-en">MILI.</text>
+      </view>
+    </view>
+
+    <view class="scene-panel theme-{{theme}}">
+      <view class="scene-panel-head">
+        <text class="scene-panel-title">选择穿搭场景</text>
+        <text class="scene-panel-hint">剩余 {{quota.remaining}} / {{quota.limit}} 张</text>
+      </view>
+      <scroll-view scroll-x class="scenario-scroll" show-scrollbar="{{false}}">
+        <view class="scenario-row">
+          <text
+            wx:for="{{sceneOptions}}"
+            wx:key="*this"
+            data-scene="{{item}}"
+            bindtap="selectScene"
+            class="scenario {{activeScene === item ? 'active' : ''}}"
+          >{{item}}</text>
+        </view>
+      </scroll-view>
+      <button class="generate-button" loading="{{generating}}" bindtap="regenerate">
+        {{generating ? '米粒搭配中' : '重新生成一张'}}
+      </button>
+      <button wx:if="{{bodyProfile.status !== 'ready'}}" class="capture-button" bindtap="goCapture">先建立三视图档案</button>
+    </view>
+  </block>
+
+  <view wx:if="{{quotaModalOpen}}" class="quota-mask" catchtap="closeQuotaModal"></view>
+  <view wx:if="{{quotaModalOpen}}" class="quota-modal">
+    <view class="quota-title">今天的免费试穿次数用完了</view>
+    <view class="quota-copy">米粒还能继续帮你搭。你可以看一段广告解锁 1 张，或开通米粒 Plus。</view>
+    <view class="plus-line">一杯咖啡的价格，让米粒陪你搭一个月。</view>
+    <button class="quota-action ad" loading="{{unlockingAd}}" catchtap="watchAdUnlock">看广告，解锁 1 张</button>
+    <button class="quota-action plus" loading="{{subscribing}}" catchtap="subscribePlus">开通米粒 Plus</button>
+    <view class="quota-close" catchtap="closeQuotaModal">明天再来</view>
+  </view>
+
+  <mili-chat context="home" />
+</view>

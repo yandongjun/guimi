@@ -1,0 +1,50 @@
+{
+  "pages": [
+    "pages/home/home",
+    "pages/daily/daily",
+    "pages/capture/capture",
+    "pages/evaluate/evaluate",
+    "pages/closet/closet",
+    "pages/profile/profile"
+  ],
+  "window": {
+    "navigationBarTitleText": "闺蜜",
+    "navigationBarBackgroundColor": "#f7f1ec",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f7f1ec",
+    "backgroundTextStyle": "dark"
+  },
+  "tabBar": {
+    "color": "#7b6f68",
+    "selectedColor": "#9a1621",
+    "backgroundColor": "#fffaf6",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/home/home",
+        "text": "今日"
+      },
+      {
+        "pagePath": "pages/capture/capture",
+        "text": "建档"
+      },
+      {
+        "pagePath": "pages/evaluate/evaluate",
+        "text": "点评"
+      },
+      {
+        "pagePath": "pages/closet/closet",
+        "text": "衣橱"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "我的"
+      }
+    ]
+  },
+  "usingComponents": {
+    "mili-chat": "/components/mili-chat/mili-chat"
+  },
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents"
+}

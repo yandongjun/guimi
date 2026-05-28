@@ -1,0 +1,98 @@
+{
+  "description": "Guimi mini program MVP",
+  "packOptions": {
+    "ignore": [
+      {
+        "value": "docs",
+        "type": "folder"
+      },
+      {
+        "value": "prototypes",
+        "type": "folder"
+      },
+      {
+        "value": "backend",
+        "type": "folder"
+      },
+      {
+        "value": "assets/generated/tryon-model-chromakey.png",
+        "type": "file"
+      },
+      {
+        "value": "assets/generated/tryon-model-transparent.png",
+        "type": "file"
+      },
+      {
+        "value": "packages/test-assets/generated/users/user-b-office.png",
+        "type": "file"
+      },
+      {
+        "value": "packages/test-assets/generated/users/user-c-shopping.png",
+        "type": "file"
+      },
+      {
+        "value": "packages/test-assets/generated/users/user-d-party.png",
+        "type": "file"
+      },
+      {
+        "value": "packages/test-assets/generated/users/user-e-dating.png",
+        "type": "file"
+      },
+      {
+        "value": "packages/test-assets/generated/users/新建文件夹",
+        "type": "folder"
+      },
+      {
+        "value": "packages/test-assets/generated/three/profile-short-curvy-front.png",
+        "type": "file"
+      },
+      {
+        "value": "packages/test-assets/generated/three/profile-short-curvy-side.png",
+        "type": "file"
+      },
+      {
+        "value": "packages/test-assets/generated/three/profile-short-curvy-back.png",
+        "type": "file"
+      }
+    ],
+    "include": []
+  },
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "newFeature": true,
+    "compileWorklet": false,
+    "uglifyFileName": false,
+    "uploadWithSourceMap": true,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "minifyWXSS": true,
+    "minifyWXML": true,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "useCompilerPlugins": false,
+    "condition": true,
+    "swc": false,
+    "disableSWC": true,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
+  },
+  "compileType": "miniprogram",
+  "libVersion": "3.6.6",
+  "appid": "wxa3dfd8d70aa0ac69",
+  "projectname": "guimi",
+  "condition": {},
+  "miniprogramRoot": "./",
+  "simulatorPluginLibVersion": {
+    "wxext14566970e7e9f62": "3.6.5-41"
+  },
+  "editorSetting": {},
+  "simulatorType": "wechat",
+  "projectArchitecture": "multiPlatform"
+}

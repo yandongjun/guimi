@@ -1,0 +1,111 @@
+<view class="page daily-page">
+  <view wx:if="{{loading}}" class="card section empty">米粒正在整理这套穿搭...</view>
+
+  <block wx:else>
+    <view class="aura-strip">
+      <view class="aura-main">
+        <view class="lucky-dot"></view>
+        <view class="aura-text">
+          <view class="aura-title">{{dailyAura.zodiac}} · 幸运色 {{dailyAura.luckyColor}}</view>
+          <view class="aura-copy">今天走{{outfit.displayMood}}，颜色点到为止。</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="section render-panel">
+      <image class="daily-tryon-image" mode="aspectFit" src="{{outfit.tryOnImage}}"></image>
+      <view class="render-shade"></view>
+      <view class="render-caption">
+        <text class="eyebrow">今日试穿</text>
+        <view class="render-title">{{outfit.displayTitle}}</view>
+      </view>
+      <view wx:for="{{outfit.visualNotes}}" wx:key="text" class="render-note render-note-{{index}}">{{item.text}}</view>
+    </view>
+
+    <view class="card section">
+      <view class="row space-between">
+        <view>
+          <text class="eyebrow">{{weather.city}} · {{weather.text}}</text>
+          <view class="card-title">{{weather.dayTemp}}° / {{weather.nightTemp}}° · {{weather.wind}}</view>
+        </view>
+        <view class="score">{{outfit.score}}</view>
+      </view>
+      <view class="divider"></view>
+      <view wx:for="{{outfit.reasons}}" wx:key="*this" class="reason-row">{{item}}</view>
+    </view>
+
+    <view class="card section">
+      <text class="eyebrow">穿搭拆解</text>
+      <view wx:for="{{outfit.layers}}" wx:key="slot" class="piece-row">
+        <view class="slot">{{item.slot}}</view>
+        <view class="piece-main">
+          <view class="piece-name">{{item.name}}</view>
+          <view class="piece-source">{{item.source === 'wardrobe' ? '来自你的衣橱' : '来自趋势库'}}</view>
+          <view class="piece-reason">{{item.reason}}</view>
+        </view>
+      </view>
+      <button class="tiny-button similar-button" bindtap="showSimilarProducts">找同类款</button>
+    </view>
+
+    <view wx:if="{{showSimilar}}" class="card section">
+      <text class="eyebrow">同类候选</text>
+      <view class="subtitle">只有你主动找类似款时，米粒才展示购买候选。</view>
+      <view wx:for="{{similarProducts}}" wx:key="id" class="trend-item">
+        <view class="trend-name">{{item.name}}</view>
+        <view class="trend-meta">{{item.platform}} · {{item.priceRange}} · {{item.color}}</view>
+        <view class="trend-reason">{{item.reason}}</view>
+      </view>
+    </view>
+
+    <view class="card section">
+      <text class="eyebrow">米粒记一下</text>
+      <view wx:for="{{ratingFields}}" wx:key="key" class="rating-row">
+        <text class="rating-label">{{item.label}}</text>
+        <view class="rating-options">
+          <text
+            wx:for="{{scoreOptions}}"
+            wx:for-item="score"
+            wx:key="*this"
+            data-key="{{item.key}}"
+            data-value="{{score}}"
+            bindtap="setScore"
+            class="rating-dot {{item.value === score ? 'active' : ''}}"
+          >{{score}}</text>
+        </view>
+      </view>
+      <button class="primary-button section" loading="{{submitting}}" bindtap="submitRating">
+        {{ratingSaved ? '已保存反馈' : '提交反馈'}}
+      </button>
+    </view>
+
+    <view class="card section">
+      <text class="eyebrow">提醒</text>
+      <view wx:for="{{outfit.reminders}}" wx:key="*this" class="reminder">{{item}}</view>
+    </view>
+  </block>
+
+  <view class="detail-tabbar">
+    <view class="detail-tab active" data-url="/pages/home/home" bindtap="goTab">
+      <text class="tab-dot"></text>
+      <text>今日</text>
+    </view>
+    <view class="detail-tab" data-url="/pages/capture/capture" bindtap="goTab">
+      <text class="tab-dot"></text>
+      <text>建档</text>
+    </view>
+    <view class="detail-tab" data-url="/pages/evaluate/evaluate" bindtap="goTab">
+      <text class="tab-dot"></text>
+      <text>点评</text>
+    </view>
+    <view class="detail-tab" data-url="/pages/closet/closet" bindtap="goTab">
+      <text class="tab-dot"></text>
+      <text>衣橱</text>
+    </view>
+    <view class="detail-tab" data-url="/pages/profile/profile" bindtap="goTab">
+      <text class="tab-dot"></text>
+      <text>我的</text>
+    </view>
+  </view>
+
+  <mili-chat context="daily" />
+</view>

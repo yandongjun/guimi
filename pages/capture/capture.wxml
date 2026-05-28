@@ -1,0 +1,155 @@
+<view class="page capture-page">
+  <view class="card intro-card">
+    <text class="eyebrow">米粒了解你</text>
+    <view class="title">选完基础信息，再上传三视图</view>
+    <view class="subtitle">年龄、星座、城市、身高体重和常用场景，会影响每日穿搭和试穿比例。</view>
+  </view>
+
+  <view class="card section know-card">
+    <view class="field-title">年龄段</view>
+    <view class="choice-row">
+      <text
+        wx:for="{{ageOptions}}"
+        wx:key="*this"
+        data-value="{{item}}"
+        bindtap="selectAge"
+        class="choice {{profile.ageRange === item ? 'active' : ''}}"
+      >{{item}}</text>
+    </view>
+
+    <view class="field-title">星座</view>
+    <scroll-view scroll-x class="choice-scroll" show-scrollbar="{{false}}">
+      <view class="choice-row nowrap">
+        <text
+          wx:for="{{zodiacOptions}}"
+          wx:key="*this"
+          data-value="{{item}}"
+          bindtap="selectZodiac"
+          class="choice {{profile.zodiac === item ? 'active' : ''}}"
+        >{{item}}</text>
+      </view>
+    </scroll-view>
+
+    <view class="field-title">城市</view>
+    <view class="choice-row">
+      <text
+        wx:for="{{cityOptions}}"
+        wx:key="*this"
+        data-value="{{item}}"
+        bindtap="selectCity"
+        class="choice {{profile.city === item ? 'active' : ''}}"
+      >{{item}}</text>
+    </view>
+
+    <view class="field-title">身高</view>
+    <scroll-view scroll-x class="choice-scroll" show-scrollbar="{{false}}">
+      <view class="choice-row nowrap">
+        <text
+          wx:for="{{heightOptions}}"
+          wx:key="*this"
+          data-value="{{item}}"
+          bindtap="selectHeight"
+          class="choice {{profile.height === item ? 'active' : ''}}"
+        >{{item}}cm</text>
+      </view>
+    </scroll-view>
+
+    <view class="field-title">体重</view>
+    <scroll-view scroll-x class="choice-scroll" show-scrollbar="{{false}}">
+      <view class="choice-row nowrap">
+        <text
+          wx:for="{{weightOptions}}"
+          wx:key="*this"
+          data-value="{{item}}"
+          bindtap="selectWeight"
+          class="choice {{profile.weight === item ? 'active' : ''}}"
+        >{{item}}kg</text>
+      </view>
+    </scroll-view>
+
+    <view class="field-title">常用场景</view>
+    <view class="choice-row">
+      <text
+        wx:for="{{sceneOptions}}"
+        wx:key="label"
+        data-value="{{item.label}}"
+        bindtap="toggleScene"
+        class="choice {{item.active ? 'active' : ''}}"
+      >{{item.label}}</text>
+    </view>
+  </view>
+
+  <view class="privacy-card section">
+    <text>拍摄建议：光线正常、背景简单、全身入镜，穿能看清轮廓的衣服。</text>
+  </view>
+
+  <button class="capture-action upload-all section" bindtap="chooseAllPhotos">上传三张照片</button>
+
+  <view class="photo-grid section">
+    <view class="photo-card" data-slot="front" bindtap="choosePhoto">
+      <image wx:if="{{photos.front}}" mode="aspectFill" src="{{photos.front}}"></image>
+      <view wx:else class="placeholder">
+        <image class="guide-photo" mode="aspectFit" src="{{guidePhotos.front}}"></image>
+        <text class="photo-title">正面</text>
+        <text class="photo-tip">全身入镜</text>
+      </view>
+    </view>
+
+    <view class="photo-card" data-slot="side" bindtap="choosePhoto">
+      <image wx:if="{{photos.side}}" mode="aspectFill" src="{{photos.side}}"></image>
+      <view wx:else class="placeholder">
+        <image class="guide-photo" mode="aspectFit" src="{{guidePhotos.side}}"></image>
+        <text class="photo-title">侧面</text>
+        <text class="photo-tip">自然侧站</text>
+      </view>
+    </view>
+
+    <view class="photo-card" data-slot="back" bindtap="choosePhoto">
+      <image wx:if="{{photos.back}}" mode="aspectFill" src="{{photos.back}}"></image>
+      <view wx:else class="placeholder">
+        <image class="guide-photo" mode="aspectFit" src="{{guidePhotos.back}}"></image>
+        <text class="photo-title">背面</text>
+        <text class="photo-tip">肩背清楚</text>
+      </view>
+    </view>
+  </view>
+
+  <button class="capture-action analyze-action section" loading="{{analyzing}}" bindtap="analyze">生成身材比例档案</button>
+
+  <view wx:if="{{result}}" class="card section result-card">
+    <view class="row space-between">
+      <view>
+        <text class="eyebrow">分析结果</text>
+        <view class="result-title">{{result.bodyType}}</view>
+      </view>
+      <text class="confidence">可信度 {{result.confidencePercent}}%</text>
+    </view>
+
+    <view class="metric-grid">
+      <view class="metric">
+        <text>肩型</text>
+        <view>{{result.shoulder}}</view>
+      </view>
+      <view class="metric">
+        <text>腰臀</text>
+        <view>{{result.waistHip}}</view>
+      </view>
+      <view class="metric">
+        <text>腿比</text>
+        <view>{{result.legRatio}}</view>
+      </view>
+    </view>
+
+    <view class="divider"></view>
+    <view class="list-title">优势</view>
+    <view class="tag-row">
+      <text wx:for="{{result.highlights}}" wx:key="*this" class="pill">{{item}}</text>
+    </view>
+    <view class="list-title">穿搭策略</view>
+    <view wx:for="{{result.strategies}}" wx:key="*this" class="strategy">{{item}}</view>
+    <view class="next-step">{{result.nextStep}}</view>
+    <button class="capture-action home-action section" bindtap="goHome">去生成今日穿搭</button>
+  </view>
+
+  <mili-chat context="capture" />
+</view>

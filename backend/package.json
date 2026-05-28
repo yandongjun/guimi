@@ -1,0 +1,12 @@
+{
+  "name": "guimi-mock-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mock API server for Guimi mini program MVP",
+  "scripts": {
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

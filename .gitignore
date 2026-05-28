@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Local backend runtime data
+backend/storage/*.json
+backend/storage/uploads/
+
+# Duplicate local image copies
+packages/test-assets/generated/users/新建文件夹/
+
+# Logs
+*.log
+prototypes/*.log
+
+# Local IDE and WeChat developer private config
+.idea/
+.vscode/
+project.private.config.json
+
+# OS files
+.DS_Store
+Thumbs.db

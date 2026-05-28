@@ -1,0 +1,45 @@
+<view class="page evaluate-page">
+  <view class="upload-panel" bindtap="chooseImage">
+    <image wx:if="{{image}}" mode="aspectFill" src="{{image}}"></image>
+    <view wx:else class="upload-placeholder">
+      <text class="eyebrow">穿搭点评</text>
+      <view class="title">发一张全身照，米粒讲清楚为什么</view>
+      <view class="subtitle">不只说好不好看，会拆比例、颜色、场景和可执行调整。</view>
+    </view>
+  </view>
+
+  <button class="primary-button section" loading="{{evaluating}}" bindtap="evaluate">开始点评</button>
+
+  <view wx:if="{{result}}" class="card section">
+    <view class="row space-between">
+      <view>
+        <text class="eyebrow">综合判断</text>
+        <view class="score-title">{{result.summary}}</view>
+      </view>
+      <view class="big-score">{{result.totalScore}}</view>
+    </view>
+  </view>
+
+  <view wx:if="{{result}}" class="card section">
+    <text class="eyebrow">有理有据</text>
+    <view wx:for="{{result.evidence}}" wx:key="title" class="evidence">
+      <view class="row space-between">
+        <text class="evidence-title">{{item.title}}</text>
+        <text class="evidence-score">{{item.score}}</text>
+      </view>
+      <view class="evidence-detail">{{item.detail}}</view>
+    </view>
+  </view>
+
+  <view wx:if="{{result}}" class="card section">
+    <text class="eyebrow">今天就能改</text>
+    <view wx:for="{{result.actions}}" wx:key="*this" class="action-item">{{item}}</view>
+  </view>
+
+  <view wx:if="{{result}}" class="card section">
+    <text class="eyebrow">自动沉淀到衣橱</text>
+    <view class="subtitle">已识别并候选加入：{{result.closetCandidatesText}}</view>
+  </view>
+
+  <mili-chat context="evaluate" />
+</view>

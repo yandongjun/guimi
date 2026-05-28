@@ -1,0 +1,65 @@
+<view class="page profile-page">
+  <view class="card">
+    <text class="eyebrow">米粒人设</text>
+    <view class="title">{{companion.name}}</view>
+    <view class="subtitle">{{companion.role}}。{{companion.tone}}。</view>
+  </view>
+
+  <view class="card section">
+    <text class="eyebrow">开发测试样本</text>
+    <view class="subtitle">切换不同身材和场景，验证推荐是否只服务标准身材。</view>
+    <view class="test-user-list">
+      <view
+        wx:for="{{testUsers}}"
+        wx:key="id"
+        data-id="{{item.id}}"
+        bindtap="selectTestUser"
+        class="test-user {{activeUserId === item.id ? 'active' : ''}}"
+      >
+        <view class="test-name">{{item.nickname}}</view>
+        <view class="test-meta">{{item.city}} · {{item.height}}/{{item.weight}} · {{item.bodyProfile.bodyType}}</view>
+      </view>
+    </view>
+  </view>
+
+  <view class="card section">
+    <text class="eyebrow">用户偏好</text>
+    <view class="profile-row">
+      <text>城市</text>
+      <view>{{user.city}}</view>
+    </view>
+    <view class="profile-row">
+      <text>星座</text>
+      <view>{{user.zodiac}}</view>
+    </view>
+    <view class="profile-row">
+      <text>身高</text>
+      <view>{{user.height}} cm</view>
+    </view>
+    <view class="profile-row">
+      <text>风格</text>
+      <view>{{user.styleText}}</view>
+    </view>
+  </view>
+
+  <view class="card section">
+    <text class="eyebrow">偏好颜色</text>
+    <view class="tag-row">
+      <text wx:for="{{user.favoriteColors}}" wx:key="*this" class="pill">{{item}}</text>
+    </view>
+  </view>
+
+  <view class="card section">
+    <text class="eyebrow">生成额度</text>
+    <view class="subtitle">免费用户每天 2 张；付费用户每天 10 张。当前为 Mock 免费账户。</view>
+  </view>
+
+  <view class="plus-card section">
+    <text class="eyebrow">米粒 Plus</text>
+    <view class="plus-title">一杯咖啡的价格，让米粒陪你搭一个月</view>
+    <view class="plus-copy">每天 10 张 AI 试穿、优先使用衣橱、更多场景方案和连续风格计划。</view>
+    <button class="plus-button" loading="{{subscribing}}" bindtap="subscribePlus">开通 Plus</button>
+  </view>
+
+  <mili-chat context="profile" />
+</view>

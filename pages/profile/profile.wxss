@@ -1,0 +1,104 @@
+.profile-row {
+  display: grid;
+  grid-template-columns: 120rpx 1fr;
+  gap: 18rpx;
+  padding: 22rpx 0;
+  border-bottom: 1rpx solid rgba(66, 52, 45, 0.08);
+  font-size: 27rpx;
+}
+
+.profile-row:last-child {
+  border-bottom: 0;
+}
+
+.profile-row text {
+  color: #7b6f68;
+}
+
+.profile-row view {
+  color: #2f2925;
+  font-weight: 700;
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 18rpx;
+}
+
+.test-user-list {
+  display: grid;
+  gap: 14rpx;
+  margin-top: 20rpx;
+}
+
+.test-user {
+  padding: 18rpx;
+  border-radius: 16rpx;
+  background: #f6eee8;
+  border: 1rpx solid rgba(66, 52, 45, 0.08);
+}
+
+.test-user.active {
+  background: #f4ddd5;
+  border-color: rgba(154, 22, 33, 0.24);
+}
+
+.test-name {
+  color: #2f2925;
+  font-size: 27rpx;
+  font-weight: 900;
+}
+
+.test-meta {
+  margin-top: 8rpx;
+  color: #7b6f68;
+  font-size: 22rpx;
+  line-height: 1.4;
+}
+
+.plus-card {
+  padding: 30rpx;
+  border-radius: 24rpx;
+  background: #2f2925;
+  color: #fffaf6;
+  box-shadow: 0 14rpx 36rpx rgba(47, 41, 37, 0.14);
+}
+
+.plus-card .eyebrow {
+  color: #f4ddd5;
+}
+
+.plus-title {
+  margin-top: 12rpx;
+  font-size: 34rpx;
+  line-height: 1.25;
+  font-weight: 900;
+}
+
+.plus-copy {
+  margin-top: 12rpx;
+  color: rgba(255, 250, 246, 0.78);
+  font-size: 25rpx;
+  line-height: 1.5;
+}
+
+.plus-button {
+  width: 100%;
+  min-height: 76rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 24rpx 0 0;
+  border-radius: 999rpx;
+  background: #fffaf6;
+  color: #7f1019;
+  font-size: 25rpx;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.plus-button::after {
+  border: none;
+}
