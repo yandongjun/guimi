@@ -12,8 +12,8 @@
         </view>
       </view>
       <view class="chat-title">
-        <text>米粒</text>
-        <view>我会慢慢记住你的偏好</view>
+        <text class="chat-name">米粒</text>
+        <view class="chat-desc">我会慢慢记住你的偏好</view>
       </view>
       <view class="close" catchtap="closeChat">×</view>
     </view>
@@ -36,13 +36,14 @@
 
     <view class="input-row">
       <input
+        class="chat-input"
         value="{{draft}}"
         bindinput="onInput"
         confirm-type="send"
         bindconfirm="sendMessage"
         placeholder="告诉米粒：年龄、星座、今天去哪、想显瘦还是有气质"
       />
-      <button catchtap="sendMessage">发送</button>
+      <button class="send-btn" catchtap="sendMessage">发送</button>
     </view>
   </view>
 

@@ -129,13 +129,13 @@
   min-width: 0;
 }
 
-.chat-title text {
+.chat-name {
   color: #2f2925;
   font-size: 30rpx;
   font-weight: 900;
 }
 
-.chat-title view {
+.chat-desc {
   margin-top: 4rpx;
   color: #7b6f68;
   font-size: 22rpx;
@@ -206,7 +206,7 @@
   margin-top: 18rpx;
 }
 
-.input-row input {
+.chat-input {
   flex: 1;
   height: 76rpx;
   padding: 0 22rpx;
@@ -216,7 +216,7 @@
   font-size: 24rpx;
 }
 
-.input-row button {
+.send-btn {
   flex: 0 0 112rpx;
   height: 76rpx;
   display: flex;
@@ -231,6 +231,6 @@
   line-height: 1;
 }
 
-.input-row button::after {
+.send-btn::after {
   border: none;
 }

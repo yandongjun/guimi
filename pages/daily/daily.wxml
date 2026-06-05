@@ -36,6 +36,14 @@
 
     <view class="card section">
       <text class="eyebrow">穿搭拆解</text>
+      <view wx:if="{{outfit.usedClosetItemsText}}" class="source-block">
+        <view class="section-title">用了你的衣服</view>
+        <view class="subtitle">{{outfit.usedClosetItemsText}}</view>
+      </view>
+      <view wx:if="{{outfit.trendFillSlotsText}}" class="source-block">
+        <view class="section-title">趋势库补位</view>
+        <view class="subtitle">{{outfit.trendFillSlotsText}}</view>
+      </view>
       <view wx:for="{{outfit.layers}}" wx:key="slot" class="piece-row">
         <view class="slot">{{item.slot}}</view>
         <view class="piece-main">

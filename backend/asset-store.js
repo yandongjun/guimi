@@ -1,11 +1,18 @@
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const sharedAssets = require("../data/assets");
 
 const workspaceRoot = path.resolve(__dirname, "..");
-const storageDir = path.join(__dirname, "storage");
+const runtimeRoot = path.join(process.env.GUIMI_RUNTIME_DIR || process.env.LOCALAPPDATA || os.tmpdir(), "guimi-runtime");
+const runtimePrefix = "/__runtime__";
+const storageDir = path.join(runtimeRoot, "storage");
 const uploadsDir = path.join(storageDir, "uploads");
 const dynamicAssetFile = path.join(storageDir, "assets.json");
+
+function isInsideRoot(root, target) {
+  return target === root || target.startsWith(`${root}${path.sep}`);
+}
 
 function ensureStorage() {
   fs.mkdirSync(uploadsDir, { recursive: true });
@@ -158,12 +165,33 @@ function registerGeneratedAsset(job, req) {
 }
 
 function resolveLocalFile(localPath) {
-  const normalized = normalizeLocalPath(localPath).replace(/^\/+/, "");
-  const resolved = path.resolve(workspaceRoot, normalized);
-  if (!resolved.startsWith(workspaceRoot)) {
+  const normalized = normalizeLocalPath(localPath);
+  if (normalized.startsWith(`${runtimePrefix}/`)) {
+    const runtimeRelative = normalized.slice(runtimePrefix.length).replace(/^\/+/, "").replaceAll("/", path.sep);
+    const resolvedRuntime = path.resolve(runtimeRoot, runtimeRelative);
+    if (!isInsideRoot(runtimeRoot, resolvedRuntime)) {
+      return null;
+    }
+    return resolvedRuntime;
+  }
+  const workspaceRelative = normalized.replace(/^\/+/, "").replaceAll("/", path.sep);
+  const resolvedWorkspace = path.resolve(workspaceRoot, workspaceRelative);
+  if (!isInsideRoot(workspaceRoot, resolvedWorkspace)) {
     return null;
   }
-  return resolved;
+  return resolvedWorkspace;
+}
+
+function publicLocalPathForAbsolute(filePath) {
+  const resolved = path.resolve(filePath);
+  if (isInsideRoot(workspaceRoot, resolved)) {
+    return normalizeLocalPath(path.relative(workspaceRoot, resolved).replace(/\\/g, "/"));
+  }
+  if (isInsideRoot(runtimeRoot, resolved)) {
+    const relative = path.relative(runtimeRoot, resolved).replace(/\\/g, "/");
+    return normalizeLocalPath(`${runtimePrefix}/${relative}`);
+  }
+  return null;
 }
 
 function mimeTypeFor(filePath) {
@@ -177,6 +205,8 @@ function mimeTypeFor(filePath) {
 
 module.exports = {
   workspaceRoot,
+  runtimeRoot,
+  runtimePrefix,
   uploadsDir,
   normalizeLocalPath,
   requestBaseUrl,
@@ -184,6 +214,7 @@ module.exports = {
   listAssets,
   getAsset,
   getAssetByLocalPath,
+  publicLocalPathForAbsolute,
   registerUploadedAsset,
   registerGeneratedAsset,
   resolveLocalFile,

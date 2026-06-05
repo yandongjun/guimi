@@ -90,7 +90,7 @@
   "condition": {},
   "miniprogramRoot": "./",
   "simulatorPluginLibVersion": {
-    "wxext14566970e7e9f62": "3.6.5-41"
+    "wxext14566970e7e9f62": "2.27.3"
   },
   "editorSetting": {},
   "simulatorType": "wechat",

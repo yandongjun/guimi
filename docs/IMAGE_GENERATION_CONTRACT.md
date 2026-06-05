@@ -45,6 +45,10 @@ transparent-background PNG cutout, alpha channel, person and outfit only, no roo
 | `scene` | 使用场景 |
 | `outfitTitle` | 穿搭标题 |
 | `favoriteColors` | 用户偏好色 |
+| `usedClosetItemIds` | 本次推荐引用的用户衣橱单品 ID |
+| `usedClosetItemLabels` | 本次推荐引用的用户衣橱单品中文名 |
+| `trendFillSlots` | 用户衣橱不足时由趋势库补位的槽位 |
+| `sourceMix` | 本次推荐来源组合，如 `wardrobe`、`trend_library` |
 
 后端任务中通过 `promptContract` 保存结构化合同。提交前会校验合同；缺字段时任务进入 `incomplete`，不会调用 moxing。
 

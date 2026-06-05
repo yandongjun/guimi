@@ -1,0 +1,17 @@
+.record-hero {
+  padding: 34rpx;
+  border-radius: 28rpx;
+  background: linear-gradient(135deg, #fffaf4 0%, #f2e4d8 100%);
+}
+
+.record-meta {
+  margin-top: 18rpx;
+  color: #9a1621;
+  font-size: 24rpx;
+  font-weight: 900;
+}
+
+.record-action {
+  width: 100%;
+  margin-top: 22rpx;
+}

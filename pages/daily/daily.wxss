@@ -221,6 +221,26 @@
   border-bottom: 0;
 }
 
+.source-block {
+  margin-top: 18rpx;
+  padding: 18rpx;
+  border-radius: 14rpx;
+  background: #f6eee7;
+}
+
+.section-title {
+  color: #9a493f;
+  font-size: 23rpx;
+  font-weight: 900;
+}
+
+.subtitle {
+  margin-top: 8rpx;
+  color: #5f544e;
+  font-size: 24rpx;
+  line-height: 1.45;
+}
+
 .piece-row {
   display: grid;
   grid-template-columns: 92rpx 1fr;

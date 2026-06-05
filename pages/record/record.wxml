@@ -1,0 +1,24 @@
+<view class="page record-page">
+  <view wx:if="{{loading}}" class="card section empty">米粒正在翻记录...</view>
+
+  <block wx:else>
+    <view class="card record-hero" bindtap="goDaily">
+      <text class="eyebrow">最近一次生成</text>
+      <view class="title">{{outfit.displayTitle}}</view>
+      <view class="subtitle">{{outfit.closetUsageCopy}}</view>
+      <view class="record-meta">今日额度 {{quota.remaining}} / {{quota.limit}}</view>
+    </view>
+
+    <view class="card section">
+      <text class="eyebrow">穿搭反馈</text>
+      <view class="subtitle">回看详情页里的评分，米粒会记住不适合你的风格。</view>
+      <button class="tiny-button record-action" bindtap="goDaily">查看今日反馈</button>
+    </view>
+
+    <view class="card section">
+      <text class="eyebrow">外部穿搭点评</text>
+      <view class="subtitle">上传一张现实穿搭照，米粒按比例、颜色、场景给出调整建议。</view>
+      <button class="primary-button record-action" bindtap="goEvaluate">上传穿搭照点评</button>
+    </view>
+  </block>
+</view>

@@ -5,6 +5,13 @@
     <view class="subtitle">{{companion.role}}。{{companion.tone}}。</view>
   </view>
 
+  <view class="build-profile-card section" bindtap="goCapture">
+    <text class="eyebrow">三视图档案</text>
+    <view class="build-title">先把身材档案建好，生成图才像你</view>
+    <view class="build-copy">上传正面、侧面、背面三张图，米粒会用它们保持身高比例、肩腰臀和穿搭真实感。</view>
+    <view class="build-action">去建档</view>
+  </view>
+
   <view class="card section">
     <text class="eyebrow">开发测试样本</text>
     <view class="subtitle">切换不同身材和场景，验证推荐是否只服务标准身材。</view>

@@ -11,9 +11,10 @@ function useMock() {
 
 function request(path, method = "GET", data = {}) {
   const { apiBaseUrl } = getAppConfig();
+  const url = `${apiBaseUrl}${path}`;
   return new Promise((resolve, reject) => {
     wx.request({
-      url: `${apiBaseUrl}${path}`,
+      url,
       method,
       data,
       success: (res) => {
@@ -23,16 +24,19 @@ function request(path, method = "GET", data = {}) {
         }
         reject(new Error((res.data && res.data.message) || "接口返回异常"));
       },
-      fail: reject
+      fail: (error) => {
+        reject(new Error(`后端不可达：${url}；${error.errMsg || "请求失败"}`));
+      }
     });
   });
 }
 
 function upload(path, filePath, formData = {}) {
   const { apiBaseUrl } = getAppConfig();
+  const url = `${apiBaseUrl}${path}`;
   return new Promise((resolve, reject) => {
     wx.uploadFile({
-      url: `${apiBaseUrl}${path}`,
+      url,
       filePath,
       name: "file",
       formData,
@@ -50,7 +54,9 @@ function upload(path, filePath, formData = {}) {
         }
         reject(new Error((data && data.message) || "上传失败"));
       },
-      fail: reject
+      fail: (error) => {
+        reject(new Error(`后端不可达：${url}；${error.errMsg || "上传失败"}`));
+      }
     });
   });
 }

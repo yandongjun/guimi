@@ -66,5 +66,5 @@ packages/test-assets/generated/users/*.jpg
 ```text
 docs/IMAGE_GENERATION_CONTRACT.md
 docs/MINIPROGRAM_MULTIPLATFORM_LIMITS.md
-docs/IMAGE_TASK_PROTOCOL.md
+docs/ASSET_PIPELINE.md
 ```

@@ -12,8 +12,8 @@ const staticAssets = [
     id: "tryon-user-b-office",
     type: "generated_tryon",
     group: "daily_tryon",
-    localPath: "/packages/test-assets/generated/users/user-b-office.jpg",
-    mimeType: "image/jpeg",
+    localPath: "/packages/test-assets/generated/users/user-b-office.png",
+    mimeType: "image/png",
     storage: "repo",
     source: "seed"
   },
@@ -21,8 +21,8 @@ const staticAssets = [
     id: "tryon-user-c-shopping",
     type: "generated_tryon",
     group: "daily_tryon",
-    localPath: "/packages/test-assets/generated/users/user-c-shopping.jpg",
-    mimeType: "image/jpeg",
+    localPath: "/packages/test-assets/generated/users/user-c-shopping.png",
+    mimeType: "image/png",
     storage: "repo",
     source: "seed"
   },
@@ -30,8 +30,8 @@ const staticAssets = [
     id: "tryon-user-d-party",
     type: "generated_tryon",
     group: "daily_tryon",
-    localPath: "/packages/test-assets/generated/users/user-d-party.jpg",
-    mimeType: "image/jpeg",
+    localPath: "/packages/test-assets/generated/users/user-d-party.png",
+    mimeType: "image/png",
     storage: "repo",
     source: "seed"
   },
@@ -39,8 +39,8 @@ const staticAssets = [
     id: "tryon-user-e-dating",
     type: "generated_tryon",
     group: "daily_tryon",
-    localPath: "/packages/test-assets/generated/users/user-e-dating.jpg",
-    mimeType: "image/jpeg",
+    localPath: "/packages/test-assets/generated/users/user-e-dating.png",
+    mimeType: "image/png",
     storage: "repo",
     source: "seed"
   },

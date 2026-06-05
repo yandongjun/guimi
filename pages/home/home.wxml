@@ -2,8 +2,12 @@
   <view wx:if="{{loading}}" class="loading-card">米粒正在翻你的衣橱...</view>
 
   <block wx:else>
-    <view class="cover theme-{{theme}}" bindtap="goDaily">
-      <image class="model" src="{{outfit.tryOnImage}}" mode="aspectFit"></image>
+    <view class="cover theme-{{theme}} {{generating || generationLocked ? 'locked' : ''}}" bindtap="goDaily">
+      <view class="studio-glow"></view>
+      <view class="studio-floor"></view>
+      <view class="model-halo"></view>
+      <image class="model" src="{{outfit.tryOnImage}}" mode="aspectFit" bindload="onCoverImageLoad" binderror="onCoverImageError"></image>
+      <view class="model-veil"></view>
       <view class="photo-soften"></view>
       <view class="cover-frame"></view>
       <view class="cover-rail"></view>
@@ -36,6 +40,10 @@
 
       <view class="headline">{{outfit.displayTitle}}</view>
       <view class="mood">今天走{{outfit.displayMood}}</view>
+      <view wx:if="{{outfit.usedClosetItemLabels && outfit.usedClosetItemLabels.length}}" class="closet-source">
+        <text class="closet-source-label">衣橱引用</text>
+        <text class="closet-source-copy">{{outfit.closetSourceText}}</text>
+      </view>
 
       <view class="reason-stack">
         <view wx:for="{{outfit.summaryReasons}}" wx:key="name" class="reason">
@@ -65,7 +73,7 @@
       </view>
     </view>
 
-    <view class="scene-panel theme-{{theme}}">
+    <view class="scene-panel theme-{{theme}} {{generating || generationLocked ? 'locked' : ''}}">
       <view class="scene-panel-head">
         <text class="scene-panel-title">选择穿搭场景</text>
         <text class="scene-panel-hint">剩余 {{quota.remaining}} / {{quota.limit}} 张</text>
@@ -77,14 +85,16 @@
             wx:key="*this"
             data-scene="{{item}}"
             bindtap="selectScene"
-            class="scenario {{activeScene === item ? 'active' : ''}}"
+            class="scenario {{activeScene === item ? 'active' : ''}} {{generating || generationLocked ? 'locked' : ''}}"
           >{{item}}</text>
         </view>
       </scroll-view>
-      <button class="generate-button" loading="{{generating}}" bindtap="regenerate">
-        {{generating ? '米粒搭配中' : '重新生成一张'}}
+      <button class="generate-button {{generating || generationLocked ? 'disabled' : ''}}" loading="{{generating}}" disabled="{{generating || generationLocked}}" bindtap="regenerate">
+        {{generating ? '正在提交生成请求' : generationLocked ? '搭配图生成中' : '重新生成一张'}}
       </button>
+      <view wx:if="{{generationHint}}" class="generate-hint">{{generationHint}}</view>
       <button wx:if="{{bodyProfile.status !== 'ready'}}" class="capture-button" bindtap="goCapture">先建立三视图档案</button>
+      <view wx:if="{{generating || generationLocked}}" class="panel-lock-mask" catchtap="noop"></view>
     </view>
   </block>
 
@@ -98,5 +108,5 @@
     <view class="quota-close" catchtap="closeQuotaModal">明天再来</view>
   </view>
 
-  <mili-chat context="home" />
+  <mili-chat wx:if="{{!debugDisableChat}}" context="home" />
 </view>

@@ -2,11 +2,16 @@
 node_modules/
 
 # Local backend runtime data
-backend/storage/*.json
+backend/storage/**
 backend/storage/uploads/
+backend/.tmp-upload-result.json
 
 # Duplicate local image copies
 packages/test-assets/generated/users/新建文件夹/
+
+# Local scratch outputs
+output-*.jpg
+nul
 
 # Logs
 *.log
@@ -16,6 +21,8 @@ prototypes/*.log
 .idea/
 .vscode/
 project.private.config.json
+.claude/
+.superpowers/
 
 # OS files
 .DS_Store

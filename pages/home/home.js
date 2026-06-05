@@ -7,11 +7,50 @@ const themeMap = {
 };
 
 const REWARDED_AD_UNIT_ID = "";
+const BLOCKING_IMAGE_JOB_STATUS = ["pending", "submitted", "queued", "running", "processing"];
+const IMAGE_JOB_FIRST_POLL_DELAY_MS = 1200;
+const IMAGE_JOB_POLL_DELAY_MS = 4000;
+const IMAGE_JOB_TIMEOUT_MS = 5 * 60 * 1000;
+
+function isImageJobBlocking(imageJob) {
+  return Boolean(imageJob && BLOCKING_IMAGE_JOB_STATUS.includes(imageJob.status));
+}
+
+function sanitizeImageJob(imageJob) {
+  if (!imageJob) return null;
+  return {
+    id: imageJob.id || "",
+    status: imageJob.status || "",
+    imageUrl: imageJob.imageUrl || "",
+    imageAsset: imageJob.imageAsset || null,
+    remoteImageUrl: imageJob.remoteImageUrl || "",
+    errorMessage: imageJob.errorMessage || ""
+  };
+}
+
+function isMissingTryOnPlaceholder(url = "") {
+  return String(url || "").includes("/assets/generated/tryon-model-transparent.png");
+}
+
+function isInteractionLocked(page) {
+  return Boolean(page && page.data && (page.data.generating || page.data.generationLocked));
+}
+
+function prepareHomeOutfit(outfit) {
+  if (!outfit) return outfit;
+  return {
+    ...outfit,
+    closetSourceText: (outfit.usedClosetItemLabels || []).join(" / ")
+  };
+}
 
 Page({
   data: {
     loading: true,
+    debugDisableChat: true,
     generating: false,
+    generationLocked: false,
+    generationHint: "",
     quotaModalOpen: false,
     unlockingAd: false,
     subscribing: false,
@@ -69,13 +108,32 @@ Page({
     try {
       this.setData({ loading: true });
       const data = await api.getHome();
+      const imageJob = sanitizeImageJob(data.dailyOutfit && data.dailyOutfit.imageJob);
+      const imageJobBlocking = isImageJobBlocking(imageJob);
+      const currentOutfit = this.data.outfit || {};
+      const nextOutfit = data.dailyOutfit
+        ? prepareHomeOutfit({ ...data.dailyOutfit, imageJob })
+        : data.dailyOutfit;
+      if (
+        imageJobBlocking
+        && currentOutfit.tryOnImage
+        && nextOutfit
+        && isMissingTryOnPlaceholder(nextOutfit.tryOnImage)
+      ) {
+        nextOutfit.tryOnImage = currentOutfit.tryOnImage;
+        nextOutfit.tryOnAsset = currentOutfit.tryOnAsset || nextOutfit.tryOnAsset || null;
+      }
       this.setData({
         loading: false,
+        generating: false,
+        generationLocked: imageJobBlocking,
+        generationHint: imageJobBlocking ? "搭配图生成中，请等待完成" : "",
+        activeScene: (nextOutfit && nextOutfit.scene) || this.data.activeScene,
         user: data.user,
         weather: data.weather,
         weatherSummary: this.formatWeather(data.weather),
         dailyAura: data.dailyAura,
-        outfit: data.dailyOutfit,
+        outfit: nextOutfit,
         bodyProfile: data.bodyProfile,
         quota: data.quota,
         closetCount: data.closetCount,
@@ -103,6 +161,11 @@ Page({
 
   async selectScene(e) {
     const scene = e.currentTarget.dataset.scene;
+    console.log("[DEBUG-home-click] selectScene", { scene });
+    if (this.data.generating || this.data.generationLocked) {
+      wx.showToast({ title: this.data.generationHint || "搭配图生成中，请稍等", icon: "none" });
+      return;
+    }
     if (scene === "更多") {
       wx.showToast({ title: "更多场景下一版开放", icon: "none" });
       return;
@@ -111,20 +174,71 @@ Page({
     await this.generateForScene(scene);
   },
 
-  async generateForScene(scene = this.data.activeScene) {
-    if (this.data.generating) return;
+  async generateForScene(scene = this.data.activeScene, options = {}) {
+    if (this.data.generating || this.data.generationLocked) {
+      wx.showToast({ title: this.data.generationHint || "搭配图生成中，请稍等", icon: "none" });
+      return;
+    }
     try {
-      this.setData({ generating: true });
-      const outfit = await api.generateOutfit({ scene });
+      const apiBaseUrl = (getApp().globalData || {}).apiBaseUrl;
+      console.log("[DEBUG-home-click] generateForScene:start", {
+        scene,
+        activeScene: this.data.activeScene,
+        url: `${apiBaseUrl}/api/outfits/generate`,
+        payload: { scene, forceNew: Boolean(options.forceNew) }
+      });
+      this.setData({
+        generating: true,
+        generationLocked: true,
+        generationHint: "正在提交生成请求..."
+      });
+      const outfit = await api.generateOutfit({ scene, forceNew: Boolean(options.forceNew) });
+      const imageJob = sanitizeImageJob(outfit.imageJob);
+      const imageJobBlocking = isImageJobBlocking(imageJob);
+      const providerDebug = outfit.debugProviderRequest || null;
+      console.log("[DEBUG-home-click] generateForScene:success", {
+        scene,
+        generationId: outfit.generationId || "",
+        imageJobStatus: imageJob && imageJob.status,
+        providerDebug
+      });
+      const currentOutfit = this.data.outfit || {};
+      const nextOutfit = prepareHomeOutfit({ ...currentOutfit, ...outfit, imageJob });
+      const isTerminalError = imageJob && ["failed", "incomplete"].includes(imageJob.status);
+      if (
+        (imageJobBlocking || isTerminalError)
+        && currentOutfit.tryOnImage
+        && isMissingTryOnPlaceholder(nextOutfit.tryOnImage)
+      ) {
+        nextOutfit.tryOnImage = currentOutfit.tryOnImage;
+        nextOutfit.tryOnAsset = currentOutfit.tryOnAsset || nextOutfit.tryOnAsset || null;
+      }
+      const shouldPoll = imageJobBlocking || (imageJob && imageJob.status === "ready");
       this.setData({
         generating: false,
-        outfit,
+        generationLocked: imageJobBlocking,
+        generationHint: imageJobBlocking ? "搭配图生成中，请等待完成" : "",
+        outfit: nextOutfit,
         quota: outfit.quota
       });
-      this.pollGeneratedImage(outfit.imageJob);
-      wx.showToast({ title: "米粒搭好啦", icon: "success" });
+      if (isTerminalError) {
+        wx.showToast({ title: imageJob.errorMessage || "生成失败", icon: "none" });
+        return;
+      }
+      if (shouldPoll) {
+        this.pollGeneratedImage(imageJob);
+      }
+      wx.showToast({ title: imageJobBlocking ? "已提交生成，正在出图" : "米粒搭好啦", icon: "none" });
     } catch (err) {
-      this.setData({ generating: false });
+      console.log("[DEBUG-home-click] generateForScene:error", {
+        scene,
+        message: err.message || "generate failed"
+      });
+      this.setData({
+        generating: false,
+        generationLocked: false,
+        generationHint: ""
+      });
       if ((err.message || "").includes("生成次数") || (err.message || "").includes("用完")) {
         this.setData({ quotaModalOpen: true });
         return;
@@ -134,36 +248,99 @@ Page({
   },
 
   regenerate() {
-    this.generateForScene(this.data.activeScene);
+    console.log("[DEBUG-home-click] regenerate", {
+      activeScene: this.data.activeScene,
+      loading: this.data.loading,
+      generating: this.data.generating,
+      generationLocked: this.data.generationLocked
+    });
+    this.generateForScene(this.data.activeScene, { forceNew: true });
+  },
+
+  onCoverImageLoad() {
+    console.log("[DEBUG-home-image] load", {
+      tryOnImage: this.data.outfit && this.data.outfit.tryOnImage
+    });
+  },
+
+  onCoverImageError(err) {
+    console.log("[DEBUG-home-image] error", {
+      tryOnImage: this.data.outfit && this.data.outfit.tryOnImage,
+      errMsg: err && err.detail && err.detail.errMsg
+    });
   },
 
   pollGeneratedImage(imageJob, attempt = 0) {
     if (!imageJob || !imageJob.id) return;
-    if (imageJob.status === "ready" && imageJob.imageUrl) {
+    const safeImageJob = sanitizeImageJob(imageJob);
+    const startedAt = Number(imageJob.startedAt || Date.now());
+    const nextAttempt = attempt + 1;
+    const nextDelay = attempt === 0 ? IMAGE_JOB_FIRST_POLL_DELAY_MS : IMAGE_JOB_POLL_DELAY_MS;
+    const nextElapsedMs = Date.now() - startedAt + nextDelay;
+    if (!safeImageJob) {
       this.setData({
-        "outfit.tryOnImage": imageJob.imageUrl,
-        "outfit.tryOnAsset": imageJob.imageAsset || null,
-        "outfit.imageJob": imageJob
+        generating: false,
+        generationLocked: false,
+        generationHint: ""
+      });
+      wx.showToast({ title: "生成任务信息缺失，请重试", icon: "none" });
+      return;
+    }
+    if (safeImageJob.status === "ready" && safeImageJob.imageUrl) {
+      this.setData({
+        generating: false,
+        generationLocked: false,
+        generationHint: "",
+        "outfit.tryOnImage": safeImageJob.imageUrl,
+        "outfit.tryOnAsset": safeImageJob.imageAsset || null,
+        "outfit.imageJob": safeImageJob
       });
       return;
     }
-    if (["failed", "incomplete"].includes(imageJob.status) || attempt >= 12) {
-      if (imageJob.errorMessage) {
-        wx.showToast({ title: imageJob.errorMessage, icon: "none" });
+    if (["failed", "incomplete"].includes(safeImageJob.status) || nextElapsedMs >= IMAGE_JOB_TIMEOUT_MS) {
+      this.setData({
+        generating: false,
+        generationLocked: false,
+        generationHint: ""
+      });
+      if (safeImageJob.errorMessage) {
+        wx.showToast({ title: safeImageJob.errorMessage, icon: "none" });
+      } else if (nextElapsedMs >= IMAGE_JOB_TIMEOUT_MS) {
+        wx.showToast({ title: "生成等待已超过 5 分钟，请稍后重试", icon: "none" });
       }
       return;
     }
+    this.setData({
+      generationLocked: true,
+      generationHint: "搭配图生成中，请等待完成"
+    });
     clearTimeout(this.imageJobTimer);
     this.imageJobTimer = setTimeout(async () => {
       try {
-        const updated = await api.pollImageJob(imageJob.id);
-        this.pollGeneratedImage(updated, attempt + 1);
+        const updated = sanitizeImageJob(await api.pollImageJob(safeImageJob.id));
+        if (!updated || !updated.id) {
+          this.setData({
+            generating: false,
+            generationLocked: false,
+            generationHint: ""
+          });
+          wx.showToast({ title: "生成任务轮询返回异常，请重试", icon: "none" });
+          return;
+        }
+        this.pollGeneratedImage({ ...updated, startedAt }, nextAttempt);
       } catch (err) {
         if (attempt < 2) {
-          this.pollGeneratedImage(imageJob, attempt + 1);
+          this.pollGeneratedImage({ ...safeImageJob, startedAt }, nextAttempt);
+          return;
         }
+        this.setData({
+          generating: false,
+          generationLocked: false,
+          generationHint: ""
+        });
+        wx.showToast({ title: err.message || "生成状态查询失败", icon: "none" });
       }
-    }, attempt === 0 ? 1200 : 4000);
+    }, nextDelay);
   },
 
   closeQuotaModal() {
@@ -241,6 +418,10 @@ Page({
   noop() {},
 
   goDaily() {
+    if (isInteractionLocked(this)) {
+      wx.showToast({ title: this.data.generationHint || "搭配图生成中，请等待完成", icon: "none" });
+      return;
+    }
     const id = this.data.outfit && this.data.outfit.generationId ? this.data.outfit.generationId : "";
     wx.navigateTo({ url: `/pages/daily/daily?id=${id}&scene=${this.data.activeScene}` });
   },

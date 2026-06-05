@@ -32,18 +32,44 @@ Page({
       side: null,
       back: null
     },
+    photoVariants: {
+      front: null,
+      side: null,
+      back: null
+    },
     guidePhotos: {
       front: "/packages/test-assets/generated/three/profile-short-curvy-front-preview.png",
       side: "/packages/test-assets/generated/three/profile-short-curvy-side-preview.png",
       back: "/packages/test-assets/generated/three/profile-short-curvy-back-preview.png"
     },
+    referenceCutoutImages: [],
+    referenceCompositePreviewImages: null,
+    referenceCompositeImages: null,
+    compositeError: "",
     uploading: false,
     analyzing: false,
     result: null
   },
 
   onLoad() {
+    console.log("[DEBUG-capture-life] onLoad");
     this.loadGuideAssets();
+  },
+
+  onShow() {
+    console.log("[DEBUG-capture-life] onShow", {
+      photos: this.data.photos,
+      uploading: this.data.uploading,
+      analyzing: this.data.analyzing
+    });
+  },
+
+  onHide() {
+    console.log("[DEBUG-capture-life] onHide");
+  },
+
+  onUnload() {
+    console.log("[DEBUG-capture-life] onUnload");
   },
 
   async loadGuideAssets() {
@@ -91,12 +117,35 @@ Page({
   },
 
   async uploadPhoto(path, slot) {
+    console.log("[DEBUG-capture-upload] uploadPhoto:start", { slot, path });
     return api.uploadAsset({
       filePath: path,
       type: "body_scan",
       group: "body_scan_uploads",
       slot
     });
+  },
+
+  pickReferenceCompositeImages(payload) {
+    if (!payload) return null;
+    return payload.referenceCompositeImages
+      || (payload.meta && payload.meta.referenceCompositeImages)
+      || null;
+  },
+
+  pickCompositeError(payload) {
+    if (!payload) return "";
+    return (payload.processing && payload.processing.compositeError)
+      || (payload.processing && payload.processing.fittedError)
+      || (payload.meta && payload.meta.fittedError)
+      || "";
+  },
+
+  pickFittedVariants(payload) {
+    if (!payload) return null;
+    return (payload.processing && payload.processing.fitted)
+      || (payload.meta && payload.meta.fitted)
+      || null;
   },
 
   async assignPhotos(paths) {
@@ -109,8 +158,25 @@ Page({
       for (let index = 0; index < paths.slice(0, 3).length; index += 1) {
         const slot = slots[index];
         const asset = await this.uploadPhoto(paths[index], slot);
+        console.log("[DEBUG-capture-upload] uploadPhoto:success", {
+          slot,
+          assetId: asset && asset.id,
+          previewUrl: asset && asset.previewUrl,
+          url: asset && asset.url,
+          referenceCompositeImages: asset && asset.referenceCompositeImages,
+          processing: asset && asset.processing
+        });
         nextPhotos[slot] = asset.previewUrl || asset.url || paths[index];
         nextAssets[slot] = asset;
+        const compositeError = this.pickCompositeError(asset);
+        const fitted = this.pickFittedVariants(asset);
+        this.setData({
+          [`photoVariants.${slot}`]: fitted,
+          referenceCutoutImages: [],
+          referenceCompositePreviewImages: null,
+          referenceCompositeImages: null,
+          compositeError: compositeError || ""
+        });
       }
       this.setData({ photos: nextPhotos, photoAssets: nextAssets, uploading: false, result: null });
     } catch (err) {
@@ -124,59 +190,100 @@ Page({
     }
   },
 
-  chooseAllPhotos() {
-    const done = (paths) => this.assignPhotos(paths);
+  /**
+   * 功能：统一选择图片文件，优先使用图片选择器，规避 Windows 端多媒体选择器卡住的问题。
+   * 参数：count 允许选择的图片数量。
+   * 返回：Promise，成功时返回临时图片路径数组。
+   * 异常：用户取消或系统选图失败时抛出异常。
+   */
+  chooseImageFiles(count) {
+    return new Promise((resolve, reject) => {
+      if (wx.chooseImage) {
+        wx.chooseImage({
+          count,
+          sizeType: ["compressed"],
+          sourceType: ["album", "camera"],
+          success: (res) => resolve((res && res.tempFilePaths) || []),
+          fail: reject
+        });
+        return;
+      }
 
-    if (wx.chooseMedia) {
-      wx.chooseMedia({
-        count: 3,
-        mediaType: ["image"],
-        sourceType: ["album", "camera"],
-        success: (res) => done(res.tempFiles.map((file) => file.tempFilePath))
-      });
-      return;
-    }
+      if (wx.chooseMedia) {
+        wx.chooseMedia({
+          count,
+          mediaType: ["image"],
+          sourceType: ["album", "camera"],
+          success: (res) => resolve((res.tempFiles || []).map((file) => file.tempFilePath)),
+          fail: reject
+        });
+        return;
+      }
 
-    wx.chooseImage({
-      count: 3,
-      sourceType: ["album", "camera"],
-      success: (res) => done(res.tempFilePaths)
+      reject(new Error("当前环境不支持图片选择"));
     });
+  },
+
+  chooseAllPhotos() {
+    this.chooseImageFiles(3)
+      .then((paths) => this.assignPhotos(paths))
+      .catch((err) => {
+        if (err && /cancel/i.test(err.errMsg || err.message || "")) {
+          return;
+        }
+        wx.showToast({ title: "打开相册失败", icon: "none" });
+      });
   },
 
   choosePhoto(e) {
     const slot = e.currentTarget.dataset.slot;
     const done = async (path) => {
+      console.log("[DEBUG-capture-upload] choosePhoto:selected", { slot, path });
       this.setData({ uploading: true, result: null });
       try {
         const asset = await this.uploadPhoto(path, slot);
+        console.log("[DEBUG-capture-upload] choosePhoto:success", {
+          slot,
+          assetId: asset && asset.id,
+          previewUrl: asset && asset.previewUrl,
+          url: asset && asset.url,
+          referenceCompositeImages: asset && asset.referenceCompositeImages,
+          processing: asset && asset.processing
+        });
         this.setData({
           [`photos.${slot}`]: asset.previewUrl || asset.url || path,
           [`photoAssets.${slot}`]: asset,
+          [`photoVariants.${slot}`]: this.pickFittedVariants(asset),
+          referenceCutoutImages: [],
+          referenceCompositePreviewImages: null,
+          referenceCompositeImages: null,
+          compositeError: this.pickCompositeError(asset) || "",
           uploading: false,
           result: null
         });
       } catch (err) {
+        console.log("[DEBUG-capture-upload] choosePhoto:error", {
+          slot,
+          message: err.message || "upload failed"
+        });
         this.setData({ uploading: false });
         wx.showToast({ title: err.message || "照片上传失败", icon: "none" });
       }
     };
 
-    if (wx.chooseMedia) {
-      wx.chooseMedia({
-        count: 1,
-        mediaType: ["image"],
-        sourceType: ["album", "camera"],
-        success: (res) => done(res.tempFiles[0].tempFilePath)
+    this.chooseImageFiles(1)
+      .then((paths) => {
+        if (!paths || !paths[0]) {
+          return;
+        }
+        return done(paths[0]);
+      })
+      .catch((err) => {
+        if (err && /cancel/i.test(err.errMsg || err.message || "")) {
+          return;
+        }
+        wx.showToast({ title: "打开相册失败", icon: "none" });
       });
-      return;
-    }
-
-    wx.chooseImage({
-      count: 1,
-      sourceType: ["album", "camera"],
-      success: (res) => done(res.tempFilePaths[0])
-    });
   },
 
   hasAllPhotos() {
@@ -197,7 +304,20 @@ Page({
         photoAssets: this.data.photoAssets,
         profile: this.data.profile
       });
-      this.setData({ analyzing: false, result });
+      console.log("[DEBUG-capture-analyze] success", {
+        referenceCutoutImages: result && result.referenceCutoutImages,
+        referenceCompositePreviewImages: result && result.referenceCompositePreviewImages,
+        referenceCompositeImages: result && result.referenceCompositeImages,
+        compositeError: result && result.compositeError
+      });
+      this.setData({
+        analyzing: false,
+        result,
+        referenceCutoutImages: result.referenceCutoutImages || [],
+        referenceCompositePreviewImages: result.referenceCompositePreviewImages || this.data.referenceCompositePreviewImages,
+        referenceCompositeImages: result.referenceCompositeImages || this.data.referenceCompositeImages,
+        compositeError: result.compositeError || this.data.compositeError
+      });
     } catch (err) {
       this.setData({ analyzing: false });
       wx.showToast({ title: err.message || "分析失败", icon: "none" });
@@ -206,5 +326,18 @@ Page({
 
   goHome() {
     wx.switchTab({ url: "/pages/home/home" });
+  },
+
+  onPhotoLoad(e) {
+    console.log("[DEBUG-capture-image] load", {
+      src: e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.src
+    });
+  },
+
+  onPhotoError(e) {
+    console.log("[DEBUG-capture-image] error", {
+      src: e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.src,
+      errMsg: e && e.detail && e.detail.errMsg
+    });
   }
 });

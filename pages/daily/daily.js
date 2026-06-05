@@ -8,6 +8,14 @@ const ratingFields = [
   { key: "likeness", label: "像不像自己", value: 4 }
 ];
 
+function prepareOutfit(outfit = {}) {
+  return {
+    ...outfit,
+    usedClosetItemsText: (outfit.usedClosetItemLabels || []).join("、"),
+    trendFillSlotsText: (outfit.trendFillSlots || []).join("、")
+  };
+}
+
 Page({
   data: {
     loading: true,
@@ -39,7 +47,7 @@ Page({
   async loadGeneration(id) {
     try {
       this.setData({ loading: true });
-      const outfit = await api.getGeneration(id);
+      const outfit = prepareOutfit(await api.getGeneration(id));
       const home = await api.getHome();
       this.setData({
         loading: false,
@@ -70,7 +78,7 @@ Page({
         luckyColor: data.luckyColor,
         favoriteColors: data.favoriteColors,
         primaryFavoriteColor: data.favoriteColors[0],
-        outfit: data.outfit,
+        outfit: prepareOutfit(data.outfit),
         trendItems: data.trendItems
       });
     } catch (err) {
@@ -98,7 +106,8 @@ Page({
       });
       await api.rateGeneration({
         generationId: this.data.outfit.generationId || this.data.outfit.id,
-        scores
+        scores,
+        styleTags: this.data.outfit.styleTags || []
       });
       this.setData({ submitting: false, ratingSaved: true });
       wx.showToast({ title: "米粒记住了", icon: "success" });

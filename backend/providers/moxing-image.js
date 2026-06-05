@@ -4,6 +4,17 @@ function getApiKey() {
   return process.env.MOXING_API_KEY || "";
 }
 
+function getDebugConfig() {
+  const apiKey = getApiKey();
+  return {
+    endpoint,
+    hasApiKey: Boolean(apiKey),
+    keyLength: apiKey.length,
+    keyTail: apiKey ? apiKey.slice(-6) : "",
+    keySource: process.env.MOXING_API_KEY ? "process.env.MOXING_API_KEY" : "missing"
+  };
+}
+
 function extractImageUrl(payload) {
   if (!payload || typeof payload !== "object") return "";
   if (typeof payload === "string") return payload;
@@ -40,25 +51,92 @@ function normalizeTaskStatus(status) {
   return status || "submitted";
 }
 
+function summarizeImageInput(input, index) {
+  if (!input) return { index, kind: "empty" };
+  if (input.startsWith("data:")) {
+    const preview = input.slice(0, Math.min(48, input.length));
+    return {
+      index,
+      kind: "data_url",
+      length: input.length,
+      preview
+    };
+  }
+  return {
+    index,
+    kind: "url",
+    length: input.length,
+    preview: input.slice(0, 160)
+  };
+}
+
+function summarizeRequestBody(body) {
+  const referenceImages = Array.isArray(body.reference_images) ? body.reference_images : [];
+  return {
+    ...body,
+    promptLength: String(body.prompt || "").length,
+    reference_images: referenceImages.map((item, index) => summarizeImageInput(item, index)),
+    reference_image_count: referenceImages.length
+  };
+}
+
+function parseRequestBody(rawBody) {
+  if (!rawBody) return null;
+  try {
+    return JSON.parse(rawBody);
+  } catch (error) {
+    return { raw: String(rawBody).slice(0, 4000) };
+  }
+}
+
+function buildRequestBody(job) {
+  const size = job.providerRequest && job.providerRequest.size
+    ? job.providerRequest.size
+    : `${job.size.width}x${job.size.height}`;
+  const providerRequest = job.providerRequest || {};
+  const referenceImages = Array.isArray(providerRequest.reference_images)
+    ? providerRequest.reference_images.filter(Boolean)
+    : Array.isArray(providerRequest.image_urls)
+      ? providerRequest.image_urls.filter(Boolean)
+      : [];
+  const payload = {
+    model: job.model || "gpt-image-2",
+    n: 1,
+    prompt: job.prompt,
+    quality: providerRequest.quality || "medium",
+    response_format: providerRequest.response_format || "url",
+    size
+  };
+  if (!referenceImages.length) {
+    return {
+      ...payload,
+      capability: "image_generation"
+    };
+  }
+  if (referenceImages.length === 1) {
+    return {
+      ...payload,
+      capability: "image_to_image",
+      reference_images: referenceImages
+    };
+  }
+  return {
+    ...payload,
+    capability: "image_generation",
+    input_mode: "multi_image",
+    reference_images: referenceImages
+  };
+}
+
 async function generateImage(job) {
   const apiKey = getApiKey();
   if (!apiKey) {
     throw new Error("MOXING_API_KEY is not set");
   }
 
-  const size = job.providerRequest && job.providerRequest.size
-    ? job.providerRequest.size
-    : `${job.size.width}x${job.size.height}`;
-
-  const body = {
-    capability: "image_generation",
-    model: job.model || "gpt-image-2",
-    n: 1,
-    prompt: job.prompt,
-    quality: "medium",
-    response_format: "url",
-    size
-  };
+  const body = buildRequestBody(job);
+  console.log("[MOXING-REQUEST] prompt", body.prompt);
+  console.log("[MOXING-REQUEST] body", summarizeRequestBody(body));
 
   const response = await fetch(endpoint, {
     method: "POST",
@@ -70,6 +148,7 @@ async function generateImage(job) {
   });
 
   const text = await response.text();
+  console.log("[MOXING-RAW-RESPONSE]", text.slice(0, 1000));
   let payload;
   try {
     payload = text ? JSON.parse(text) : {};
@@ -79,7 +158,15 @@ async function generateImage(job) {
 
   if (!response.ok) {
     const message = payload.message || payload.error?.message || `moxing request failed: ${response.status}`;
-    throw new Error(message);
+    console.log("[MOXING-ERROR] response", {
+      status: response.status,
+      request: summarizeRequestBody(body),
+      response: payload
+    });
+    const error = new Error(message);
+    error.providerRequest = body;
+    error.providerResponse = payload;
+    throw error;
   }
 
   const imageUrl = extractImageUrl(payload);
@@ -120,7 +207,14 @@ async function requestJson(path, options = {}) {
   }
   if (!response.ok) {
     const message = payload.message || payload.error?.message || `moxing request failed: ${response.status}`;
+    const providerRequest = parseRequestBody(options.body || "");
+    console.log("[MOXING-ERROR] response", {
+      status: response.status,
+      request: providerRequest ? summarizeRequestBody(providerRequest) : null,
+      response: payload
+    });
     const error = new Error(message);
+    error.providerRequest = providerRequest;
     error.providerResponse = payload;
     throw error;
   }
@@ -128,19 +222,9 @@ async function requestJson(path, options = {}) {
 }
 
 async function submitImage(job) {
-  const size = job.providerRequest && job.providerRequest.size
-    ? job.providerRequest.size
-    : `${job.size.width}x${job.size.height}`;
-
-  const body = {
-    capability: "image_generation",
-    model: job.model || "gpt-image-2",
-    n: 1,
-    prompt: job.prompt,
-    quality: "medium",
-    response_format: "url",
-    size
-  };
+  const body = buildRequestBody(job);
+  console.log("[MOXING-REQUEST] prompt", body.prompt);
+  console.log("[MOXING-REQUEST] body", JSON.stringify(summarizeRequestBody(body), null, 2));
 
   const payload = await requestJson(endpoint, {
     method: "POST",
@@ -268,6 +352,7 @@ async function pollImageByPost(taskId, url, body = {}) {
 module.exports = {
   extractImageUrl,
   generateImage,
+  getDebugConfig,
   submitImage,
   pollImage,
   pollImageWithUrl,

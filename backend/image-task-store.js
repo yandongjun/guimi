@@ -1,7 +1,9 @@
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
-const storePath = path.join(__dirname, "storage", "image-jobs.json");
+const runtimeRoot = path.join(process.env.GUIMI_RUNTIME_DIR || process.env.LOCALAPPDATA || os.tmpdir(), "guimi-runtime");
+const storePath = path.join(runtimeRoot, "storage", "image-jobs.json");
 
 function ensureStore() {
   const dir = path.dirname(storePath);
@@ -40,6 +42,11 @@ function createJob(payload) {
     userName: payload.userName,
     scene: payload.scene,
     outfitTitle: payload.outfitTitle,
+    outfitBrief: payload.outfitBrief || null,
+    usedClosetItemIds: payload.usedClosetItemIds || [],
+    usedClosetItemLabels: payload.usedClosetItemLabels || [],
+    trendFillSlots: payload.trendFillSlots || [],
+    sourceMix: payload.sourceMix || [],
     targetPath: payload.targetPath,
     prompt: payload.prompt,
     negativePrompt: payload.negativePrompt || "",
@@ -55,6 +62,7 @@ function createJob(payload) {
     remoteImageUrl: payload.remoteImageUrl || "",
     imageUrl: "",
     localImageBytes: 0,
+    quotaConsumed: Boolean(payload.quotaConsumed),
     errorMessage: "",
     createdAt: now,
     updatedAt: now

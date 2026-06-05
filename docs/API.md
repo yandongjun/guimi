@@ -77,7 +77,7 @@
 ```json
 {
   "city": "上海",
-  "zodiac": "天秤座"
+  "scene": "上班"
 }
 ```
 
@@ -88,6 +88,12 @@
 - `favoriteColors`：用户偏好色
 - `outfit`：分层穿搭方案
 - `trendItems`：最新流行商品候选
+- `outfit.usedClosetItems`：本次引用的轻衣橱单品对象
+- `outfit.usedClosetItemIds`：本次引用的轻衣橱单品 ID
+- `outfit.usedClosetItemLabels`：本次引用的轻衣橱单品中文名
+- `outfit.trendFillSlots`：趋势库补位槽位
+- `outfit.sourceMix`：来源组合
+- `outfit.closetUsageCopy`：前端可直接展示的来源说明
 
 ## GET /api/closet
 
@@ -121,12 +127,6 @@
 详细协议见：
 
 ```text
-docs/IMAGE_TASK_PROTOCOL.md
-```
-
-Additional image generation docs:
-
-```text
 docs/IMAGE_GENERATION_CONTRACT.md
 docs/MINIPROGRAM_MULTIPLATFORM_LIMITS.md
 docs/ASSET_PIPELINE.md
@@ -144,3 +144,5 @@ docs/ASSET_PIPELINE.md
 - `POST /api/image-jobs/run-pending`：批量提交 pending 任务。
 - `POST /api/image-jobs/poll-submitted`：批量轮询 submitted / queued / processing 任务。
 - `POST /api/image-jobs/:id/fail`：标记失败。
+
+`POST /api/outfits/generate` 支持 `forceNew: true`，用于用户主动点击“重新生成”时创建新任务，避免复用旧图。

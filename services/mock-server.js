@@ -105,6 +105,55 @@ function reasonsFor(profile, scene) {
   ];
 }
 
+function sceneKey(scene) {
+  const map = {
+    "上班": "office",
+    "约会": "dating",
+    "聚会": "party",
+    "出游": "travel",
+    "逛街": "shopping"
+  };
+  return map[scene] || scene || "daily";
+}
+
+function outfitBriefFor(user, profile, scene, outfit) {
+  const targetScene = sceneKey(scene);
+  const strategies = profile.strategyTags || [];
+  const rejected = user.rejectedStyleTags || [];
+  const ranked = mock.closet
+    .map((item) => {
+      let score = 0;
+      if ((item.sceneTags || []).includes(targetScene)) score += 4;
+      score += (item.bodyStrategyTags || []).filter((tag) => strategies.includes(tag)).length * 3;
+      score -= (item.styleTags || []).filter((tag) => rejected.includes(tag)).length * 4;
+      return { item, score };
+    })
+    .sort((left, right) => right.score - left.score);
+  const picked = ranked.filter((entry) => entry.score > 0).slice(0, 2).map((entry) => entry.item);
+  const fallback = ranked.slice(0, 1).map((entry) => entry.item);
+  const usedClosetItems = picked.length ? picked : fallback;
+  const categories = new Set(usedClosetItems.map((item) => item.category));
+  const trendFillSlots = [];
+  if (!categories.has("top")) trendFillSlots.push("内搭");
+  if (!categories.has("bottom") && !categories.has("dress")) trendFillSlots.push("下装");
+  if (!categories.has("shoes")) trendFillSlots.push("鞋");
+  const usedClosetItemLabels = usedClosetItems.map((item) => item.name || item.subCategoryLabel || item.categoryLabel);
+
+  return {
+    scene,
+    mood: outfit.displayMood || outfit.mood || "",
+    title: outfit.displayTitle || outfit.title || "",
+    usedClosetItems,
+    usedClosetItemIds: usedClosetItems.map((item) => item.itemId || item.id),
+    usedClosetItemLabels,
+    trendFillSlots: trendFillSlots.slice(0, 2),
+    sourceMix: usedClosetItems.length ? ["wardrobe", "trend_library"] : ["trend_library"],
+    closetUsageCopy: usedClosetItemLabels.length
+      ? `今天用了你衣橱里的${usedClosetItemLabels.join("、")}。`
+      : "今天先用趋势库搭一版，上传常穿衣服后会更像你的日常。"
+  };
+}
+
 function localAsset(id) {
   const asset = assets.getAssetById(id);
   if (!asset) return null;
@@ -123,6 +172,7 @@ function userOutfit(scene) {
   const job = mock.manualImageJobs.find((item) => item.userId === currentUser.id && item.scene === scene);
   const assetId = job ? assets.getOutfitAssetId(job.id) : "";
   const tryOnAsset = assetId ? localAsset(assetId) : null;
+  const brief = outfitBriefFor(currentUser, profile, scene, base);
   return {
     ...base,
     id: job ? job.id : `${base.id}-${currentUser.id}`,
@@ -135,17 +185,33 @@ function userOutfit(scene) {
     tryOnImage: USE_MANUAL_TEST_IMAGES && tryOnAsset ? tryOnAsset.previewUrl : "/assets/generated/tryon-model-transparent.png",
     visualNotes: visualNotesFor(profile),
     summaryReasons: summaryReasonsFor(profile, scene),
-    reasons: reasonsFor(profile, scene)
+    reasons: reasonsFor(profile, scene),
+    outfitBrief: brief,
+    usedClosetItems: brief.usedClosetItems,
+    usedClosetItemIds: brief.usedClosetItemIds,
+    usedClosetItemLabels: brief.usedClosetItemLabels,
+    trendFillSlots: brief.trendFillSlots,
+    sourceMix: brief.sourceMix,
+    closetUsageCopy: brief.closetUsageCopy
   };
 }
 
 function withGenerationMeta(outfit, scene) {
+  const brief = outfitBriefFor(activeUser(), activeBodyProfile(), scene, outfit);
   const generationId = `${outfit.id}-${Date.now()}`;
   const payload = {
     generationId,
     status: "success",
     scene,
     ...outfit,
+    outfitBrief: brief,
+    usedClosetItems: brief.usedClosetItems,
+    usedClosetItemIds: brief.usedClosetItemIds,
+    usedClosetItemLabels: brief.usedClosetItemLabels,
+    trendFillSlots: brief.trendFillSlots,
+    sourceMix: brief.sourceMix,
+    styleTags: Array.from(new Set(brief.usedClosetItems.flatMap((item) => item.styleTags || []))),
+    closetUsageCopy: brief.closetUsageCopy,
     quota: quota()
   };
   state.generations[generationId] = payload;
@@ -208,16 +274,25 @@ function rateGeneration(payload = {}) {
     id: `rating-${Date.now()}`,
     generationId: payload.generationId,
     scores: payload.scores || {},
+    styleTags: payload.styleTags || [],
     reason: payload.reason || "",
     createdAt: new Date().toISOString()
   };
   state.ratings.push(rating);
+  const scores = rating.scores || {};
+  if (Number(scores.fashion || 0) <= 2 || Number(scores.wearable || 0) <= 2) {
+    const user = activeUser();
+    const rejected = new Set(user.rejectedStyleTags || []);
+    (rating.styleTags || []).forEach((tag) => rejected.add(tag));
+    user.rejectedStyleTags = Array.from(rejected);
+  }
   return wait({
     saved: true,
     rating,
     fashionProfileUpdate: {
       favoriteStyles: ["clean_fit", "commute"],
-      reinforcedTags: ["raise_waistline", "define_shoulder"]
+      reinforcedTags: ["raise_waistline", "define_shoulder"],
+      rejectedStyleTags: activeUser().rejectedStyleTags || []
     }
   });
 }

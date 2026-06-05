@@ -83,38 +83,87 @@
     <text>拍摄建议：光线正常、背景简单、全身入镜，穿能看清轮廓的衣服。</text>
   </view>
 
-  <button class="capture-action upload-all section" bindtap="chooseAllPhotos">上传三张照片</button>
-
   <view class="photo-grid section">
     <view class="photo-card" data-slot="front" bindtap="choosePhoto">
-      <image wx:if="{{photos.front}}" mode="aspectFill" src="{{photos.front}}"></image>
-      <view wx:else class="placeholder">
-        <image class="guide-photo" mode="aspectFit" src="{{guidePhotos.front}}"></image>
+      <image wx:if="{{photos.front}}" mode="aspectFill" src="{{photos.front}}" data-slot="front" data-src="{{photos.front}}" bindtap="choosePhoto" bindload="onPhotoLoad" binderror="onPhotoError"></image>
+      <view wx:else class="placeholder" data-slot="front" bindtap="choosePhoto">
+        <image class="guide-photo" mode="aspectFit" src="{{guidePhotos.front}}" data-slot="front" bindtap="choosePhoto"></image>
         <text class="photo-title">正面</text>
         <text class="photo-tip">全身入镜</text>
       </view>
     </view>
 
     <view class="photo-card" data-slot="side" bindtap="choosePhoto">
-      <image wx:if="{{photos.side}}" mode="aspectFill" src="{{photos.side}}"></image>
-      <view wx:else class="placeholder">
-        <image class="guide-photo" mode="aspectFit" src="{{guidePhotos.side}}"></image>
+      <image wx:if="{{photos.side}}" mode="aspectFill" src="{{photos.side}}" data-slot="side" data-src="{{photos.side}}" bindtap="choosePhoto" bindload="onPhotoLoad" binderror="onPhotoError"></image>
+      <view wx:else class="placeholder" data-slot="side" bindtap="choosePhoto">
+        <image class="guide-photo" mode="aspectFit" src="{{guidePhotos.side}}" data-slot="side" bindtap="choosePhoto"></image>
         <text class="photo-title">侧面</text>
         <text class="photo-tip">自然侧站</text>
       </view>
     </view>
 
     <view class="photo-card" data-slot="back" bindtap="choosePhoto">
-      <image wx:if="{{photos.back}}" mode="aspectFill" src="{{photos.back}}"></image>
-      <view wx:else class="placeholder">
-        <image class="guide-photo" mode="aspectFit" src="{{guidePhotos.back}}"></image>
+      <image wx:if="{{photos.back}}" mode="aspectFill" src="{{photos.back}}" data-slot="back" data-src="{{photos.back}}" bindtap="choosePhoto" bindload="onPhotoLoad" binderror="onPhotoError"></image>
+      <view wx:else class="placeholder" data-slot="back" bindtap="choosePhoto">
+        <image class="guide-photo" mode="aspectFit" src="{{guidePhotos.back}}" data-slot="back" bindtap="choosePhoto"></image>
         <text class="photo-title">背面</text>
         <text class="photo-tip">肩背清楚</text>
       </view>
     </view>
   </view>
 
-  <button class="capture-action analyze-action section" loading="{{analyzing}}" bindtap="analyze">生成身材比例档案</button>
+  <button class="capture-action upload-all section" bindtap="chooseAllPhotos">上传三张照片</button>
+
+  <view wx:if="{{referenceCutoutImages && referenceCutoutImages.length}}" class="card section derived-card">
+    <text class="eyebrow">主体紧裁抠图</text>
+    <view class="derived-title">这里展示真正参与三视图合成的单张人物图，方便检查人物边缘和主体占比。</view>
+    <view class="cutout-grid">
+      <view wx:for="{{referenceCutoutImages}}" wx:key="slot" class="cutout-item">
+        <image class="cutout-image" mode="aspectFit" src="{{item.previewUrl || item.url}}"></image>
+        <text class="derived-caption">{{item.slot === 'front' ? '正面' : (item.slot === 'side' ? '侧面' : '背面')}}主体紧裁图</text>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{(referenceCompositePreviewImages && (referenceCompositePreviewImages.portrait || referenceCompositePreviewImages.square)) || (referenceCompositeImages && (referenceCompositeImages.portrait || referenceCompositeImages.square))}}" class="card section composite-card">
+    <text class="eyebrow">三视图抠图合成结果</text>
+    <view class="composite-title">先人物抠图并紧裁，再合成两套参考图。后端生图默认同时使用白底主参考图和透明预览辅参考图。</view>
+    <image
+      wx:if="{{referenceCompositePreviewImages && referenceCompositePreviewImages.portrait}}"
+      class="composite-main"
+      mode="aspectFit"
+      src="{{referenceCompositePreviewImages.portrait.previewUrl || referenceCompositePreviewImages.portrait.url}}"
+    ></image>
+    <view wx:if="{{referenceCompositePreviewImages && referenceCompositePreviewImages.portrait}}" class="composite-meta">透明预览图 1024 x 1536，作为辅参考图，补充侧背轮廓与边缘信息</view>
+    <image
+      wx:if="{{referenceCompositeImages.portrait}}"
+      class="composite-main"
+      mode="aspectFit"
+      src="{{referenceCompositeImages.portrait.previewUrl || referenceCompositeImages.portrait.url}}"
+    ></image>
+    <view wx:if="{{referenceCompositeImages.portrait}}" class="composite-meta">白底参考图 1024 x 1536，作为主参考图，优先提供给穿搭生图模型</view>
+    <image
+      wx:if="{{referenceCompositePreviewImages && referenceCompositePreviewImages.square}}"
+      class="composite-square"
+      mode="aspectFit"
+      src="{{referenceCompositePreviewImages.square.previewUrl || referenceCompositePreviewImages.square.url}}"
+    ></image>
+    <view wx:if="{{referenceCompositePreviewImages && referenceCompositePreviewImages.square}}" class="composite-meta">透明预览方图 1024 x 1024</view>
+    <image
+      wx:if="{{referenceCompositeImages.square}}"
+      class="composite-square"
+      mode="aspectFit"
+      src="{{referenceCompositeImages.square.previewUrl || referenceCompositeImages.square.url}}"
+    ></image>
+    <view wx:if="{{referenceCompositeImages.square}}" class="composite-meta">白底参考方图 1024 x 1024</view>
+  </view>
+
+  <view wx:if="{{compositeError && !(referenceCompositeImages && (referenceCompositeImages.portrait || referenceCompositeImages.square))}}" class="card section composite-error-card">
+    <text class="eyebrow">三视图合成失败</text>
+    <view class="composite-error-copy">{{compositeError}}</view>
+  </view>
+
+  <button class="capture-action analyze-action section" loading="{{analyzing}}" bindtap="analyze">建立档案并生成抠图三视图参考图</button>
 
   <view wx:if="{{result}}" class="card section result-card">
     <view class="row space-between">

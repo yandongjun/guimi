@@ -2,8 +2,8 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
+const assetStore = require("./asset-store");
 
-const projectRoot = path.resolve(__dirname, "..");
 const maxLocalImageBytes = 600 * 1024;
 const maxLocalPngBytes = 1600 * 1024;
 
@@ -11,10 +11,9 @@ function resolveProjectPath(targetPath) {
   if (!targetPath || typeof targetPath !== "string") {
     throw new Error("targetPath is required");
   }
-  const normalized = targetPath.replace(/^\/+/, "").replaceAll("/", path.sep);
-  const resolved = path.resolve(projectRoot, normalized);
-  if (!resolved.startsWith(projectRoot + path.sep)) {
-    throw new Error("targetPath must stay inside project root");
+  const resolved = assetStore.resolveLocalFile(targetPath);
+  if (!resolved) {
+    throw new Error("targetPath must stay inside workspace or runtime root");
   }
   return resolved;
 }

@@ -5,6 +5,7 @@
     "pages/capture/capture",
     "pages/evaluate/evaluate",
     "pages/closet/closet",
+    "pages/record/record",
     "pages/profile/profile"
   ],
   "window": {
@@ -25,16 +26,12 @@
         "text": "今日"
       },
       {
-        "pagePath": "pages/capture/capture",
-        "text": "建档"
-      },
-      {
-        "pagePath": "pages/evaluate/evaluate",
-        "text": "点评"
-      },
-      {
         "pagePath": "pages/closet/closet",
         "text": "衣橱"
+      },
+      {
+        "pagePath": "pages/record/record",
+        "text": "记录"
       },
       {
         "pagePath": "pages/profile/profile",

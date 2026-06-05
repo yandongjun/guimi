@@ -62,5 +62,9 @@ Page({
       this.setData({ subscribing: false });
       wx.showToast({ title: err.message || "订阅失败", icon: "none" });
     }
+  },
+
+  goCapture() {
+    wx.navigateTo({ url: "/pages/capture/capture" });
   }
 });
