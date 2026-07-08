@@ -1,7 +1,9 @@
 const mock = require("../data/mock");
 const assets = require("../data/assets");
+const { luckyColorForZodiac } = require("../data/zodiac-lucky-colors");
 
 const USE_MANUAL_TEST_IMAGES = true;
+const RECOMMENDATION_STYLIST_PROMPT = "你是一位专业时尚穿搭顾问，了解最新时尚趋势。请基于用户画像、身材策略、天气、场景、用户衣橱和平台衣服库，生成一套现实可穿的结构化穿搭方案。优先使用用户衣橱；只有用户衣橱无法满足场景、天气或审美目标时，才从平台衣服库或者互联网信息补位。";
 
 const state = {
   activeUserId: "user-a",
@@ -46,10 +48,15 @@ function activeBodyProfile() {
 
 function activeAura() {
   const currentUser = activeUser();
+  const luckyColor = luckyColorForZodiac(currentUser.zodiac);
   return {
     ...mock.dailyAura,
     zodiac: currentUser.zodiac,
-    luckyColor: currentUser.favoriteColors[0] || mock.dailyAura.luckyColor
+    luckyColor: luckyColor.color,
+    luckyColorHex: luckyColor.hex,
+    luckyColorPart: luckyColor.part,
+    stylingHint: luckyColor.stylingHint,
+    luckyColorSource: luckyColor.source
   };
 }
 
@@ -154,6 +161,40 @@ function outfitBriefFor(user, profile, scene, outfit) {
   };
 }
 
+function compactTextList(items = []) {
+  return (items || [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+}
+
+function recommendationSnapshotFor(user, profile, scene, outfit = {}) {
+  const brief = outfitBriefFor(user, profile, scene, outfit || {});
+  const summaryReasons = compactTextList(outfit.summaryReasons || outfit.reasons || []).slice(0, 3);
+  const reasons = compactTextList(outfit.reasons || summaryReasons).slice(0, 3);
+  const visualNotes = compactTextList(outfit.visualNotes || summaryReasons || reasons).slice(0, 3);
+  const displayTitle = outfit.displayTitle || outfit.title || brief.title || "";
+  const displayMood = outfit.displayMood || outfit.mood || brief.mood || "";
+  return {
+    scene,
+    stylistPrompt: RECOMMENDATION_STYLIST_PROMPT,
+    displayTitle,
+    title: displayTitle,
+    displayMood,
+    mood: displayMood,
+    summaryReasons,
+    reasons,
+    visualNotes,
+    outfitBrief: brief,
+    usedClosetItems: brief.usedClosetItems,
+    usedClosetItemIds: brief.usedClosetItemIds,
+    usedClosetItemLabels: brief.usedClosetItemLabels,
+    trendFillSlots: brief.trendFillSlots,
+    sourceMix: brief.sourceMix,
+    closetUsageCopy: brief.closetUsageCopy,
+    closetSourceText: brief.usedClosetItemLabels.join(" / ")
+  };
+}
+
 function localAsset(id) {
   const asset = assets.getAssetById(id);
   if (!asset) return null;
@@ -172,7 +213,13 @@ function userOutfit(scene) {
   const job = mock.manualImageJobs.find((item) => item.userId === currentUser.id && item.scene === scene);
   const assetId = job ? assets.getOutfitAssetId(job.id) : "";
   const tryOnAsset = assetId ? localAsset(assetId) : null;
-  const brief = outfitBriefFor(currentUser, profile, scene, base);
+  const recommendationSnapshot = recommendationSnapshotFor(currentUser, profile, scene, {
+    ...base,
+    visualNotes: visualNotesFor(profile),
+    summaryReasons: summaryReasonsFor(profile, scene),
+    reasons: reasonsFor(profile, scene)
+  });
+  const brief = recommendationSnapshot.outfitBrief;
   return {
     ...base,
     id: job ? job.id : `${base.id}-${currentUser.id}`,
@@ -186,6 +233,7 @@ function userOutfit(scene) {
     visualNotes: visualNotesFor(profile),
     summaryReasons: summaryReasonsFor(profile, scene),
     reasons: reasonsFor(profile, scene),
+    recommendationSnapshot,
     outfitBrief: brief,
     usedClosetItems: brief.usedClosetItems,
     usedClosetItemIds: brief.usedClosetItemIds,
@@ -197,13 +245,15 @@ function userOutfit(scene) {
 }
 
 function withGenerationMeta(outfit, scene) {
-  const brief = outfitBriefFor(activeUser(), activeBodyProfile(), scene, outfit);
+  const recommendationSnapshot = recommendationSnapshotFor(activeUser(), activeBodyProfile(), scene, outfit);
+  const brief = recommendationSnapshot.outfitBrief;
   const generationId = `${outfit.id}-${Date.now()}`;
   const payload = {
     generationId,
     status: "success",
     scene,
     ...outfit,
+    recommendationSnapshot,
     outfitBrief: brief,
     usedClosetItems: brief.usedClosetItems,
     usedClosetItemIds: brief.usedClosetItemIds,
@@ -391,7 +441,11 @@ function selectTestUser(payload = {}) {
 
 function getCloset() {
   return wait({
-    items: mock.closet,
+    items: mock.closet.map((item) => ({
+      ...item,
+      publicImageUrl: item.publicImageUrl || item.image || "",
+      imageDownloadStatus: item.image ? "remote_fallback" : "missing"
+    })),
     gaps: [
       "缺少一件轻薄防风短外套，适合出游和早晚温差。",
       "缺少米灰色高腰半裙，约会场景可以更柔和。",
@@ -415,6 +469,51 @@ function addClosetItem(payload = {}) {
   }, 240);
 }
 
+function uploadClosetItem(payload = {}) {
+  const id = `c${Date.now()}`;
+  const item = {
+    id,
+    itemId: id,
+    name: "本地上传上衣",
+    category: "top",
+    categoryLabel: "上衣",
+    subCategory: "top",
+    subCategoryLabel: "上衣",
+    color: "neutral",
+    colorLabel: "中性色",
+    warmth: 1,
+    formality: 2,
+    sourceType: "wardrobe",
+    styleTags: ["clean_fit"],
+    styleLabels: ["干净感"],
+    bodyStrategyTags: ["upper_focus"],
+    bodyStrategyLabels: ["上半身做重点"],
+    sceneTags: ["office", "travel"],
+    sceneLabels: ["上班", "出游"],
+    riskTags: [],
+    riskLabels: [],
+    usageCount: 0,
+    image: payload.filePath || "",
+    publicImageUrl: "",
+    imageDownloadStatus: payload.filePath ? "local_ready" : "missing"
+  };
+  mock.closet.unshift(item);
+  return wait({ item, analysis: item }, 240);
+}
+
+function uploadPersonClosetImage(payload = {}) {
+  return wait({
+    status: "not_configured",
+    segmentation: {
+      status: "not_configured",
+      sourceImageUrl: payload.filePath || "",
+      items: [],
+      message: "人物衣服分割服务预留接口，MVP 当前直接分析单品图片。"
+    },
+    createdItems: []
+  }, 240);
+}
+
 function getSimilarProducts() {
   return wait({
     items: mock.similarProducts
@@ -434,6 +533,8 @@ module.exports = {
   evaluateOutfit,
   getCloset,
   addClosetItem,
+  uploadClosetItem,
+  uploadPersonClosetImage,
   getSimilarProducts,
   getTestUsers,
   getAssets,

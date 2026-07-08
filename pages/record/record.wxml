@@ -1,18 +1,45 @@
 <view class="page record-page">
-  <view wx:if="{{loading}}" class="card section empty">米粒正在翻记录...</view>
+  <view wx:if="{{loading}}" class="card section empty">正在读取生成记录...</view>
 
   <block wx:else>
-    <view class="card record-hero" bindtap="goDaily">
-      <text class="eyebrow">最近一次生成</text>
-      <view class="title">{{outfit.displayTitle}}</view>
-      <view class="subtitle">{{outfit.closetUsageCopy}}</view>
-      <view class="record-meta">今日额度 {{quota.remaining}} / {{quota.limit}}</view>
+    <view class="record-header">
+      <view>
+        <text class="eyebrow">生成历史</text>
+        <view class="title">你的穿搭图记录</view>
+      </view>
+      <view class="record-header-actions">
+        <view wx:if="{{quota}}" class="record-quota">今日 {{quota.remaining}} / {{quota.limit}}</view>
+        <button class="sync-button" loading="{{recovering}}" disabled="{{recovering}}" bindtap="syncProviderImages">
+          {{recovering ? '同步中' : '同步账号图片'}}
+        </button>
+      </view>
     </view>
 
-    <view class="card section">
-      <text class="eyebrow">穿搭反馈</text>
-      <view class="subtitle">回看详情页里的评分，米粒会记住不适合你的风格。</view>
-      <button class="tiny-button record-action" bindtap="goDaily">查看今日反馈</button>
+    <view wx:if="{{!jobs.length}}" class="card section empty">
+      还没有生成记录，先回到今日生成一张穿搭图。
+    </view>
+
+    <view wx:for="{{jobs}}" wx:key="id" class="record-card">
+      <view class="record-cover {{item.hasImage ? '' : 'empty-cover'}}" bindtap="previewJob" data-image-url="{{item.imageUrl}}">
+        <image wx:if="{{item.hasImage}}" class="record-image" src="{{item.imageUrl}}" mode="aspectFill"></image>
+        <view wx:if="{{item.hasImage}}" class="record-preview-mask">{{item.previewCta}}</view>
+        <view wx:else class="record-empty-text">{{item.statusText}}</view>
+      </view>
+      <view class="record-body">
+        <view class="record-line">
+          <view class="record-title">{{item.displayTitle}}</view>
+          <view class="record-status status-{{item.statusClass}}">{{item.statusText}}</view>
+        </view>
+        <view class="record-subtitle">{{item.displayScene}} · {{item.displayTime}}</view>
+        <view class="record-chip-row">
+          <text class="record-chip">{{item.modeText}}</text>
+          <text wx:if="{{item.styleText}}" class="record-chip">{{item.styleText}}</text>
+          <text wx:if="{{item.repeatedImage}}" class="record-chip warning">旧图复用</text>
+        </view>
+        <view wx:if="{{item.closetText}}" class="record-closet">衣橱引用：{{item.closetText}}</view>
+        <view wx:if="{{item.errorMessage}}" class="record-error">{{item.errorMessage}}</view>
+        <button wx:if="{{item.hasImage}}" class="tiny-button record-action" bindtap="previewJob" data-image-url="{{item.imageUrl}}">查看大图</button>
+      </view>
     </view>
 
     <view class="card section">

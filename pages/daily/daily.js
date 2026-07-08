@@ -16,6 +16,20 @@ function prepareOutfit(outfit = {}) {
   };
 }
 
+function applyImageJob(outfit = {}, imageJob = null) {
+  if (!imageJob || imageJob.status !== "ready" || !imageJob.imageUrl) return outfit;
+  return {
+    ...outfit,
+    id: outfit.id || imageJob.id,
+    scene: imageJob.scene || outfit.scene,
+    displayTitle: outfit.displayTitle || imageJob.outfitTitle,
+    title: outfit.title || imageJob.outfitTitle,
+    tryOnImage: imageJob.imageUrl,
+    tryOnAsset: imageJob.imageAsset || outfit.tryOnAsset || null,
+    imageJob
+  };
+}
+
 Page({
   data: {
     loading: true,
@@ -38,17 +52,47 @@ Page({
   onLoad(options = {}) {
     this.setData({ scene: options.scene || "上班" });
     if (options.id) {
-      this.loadGeneration(options.id);
+      this.loadGeneration(options.id, options.imageJobId || "");
+      return;
+    }
+    if (options.imageJobId) {
+      this.loadImageJob(options.imageJobId);
       return;
     }
     this.loadDaily();
   },
 
-  async loadGeneration(id) {
+  async loadGeneration(id, imageJobId = "") {
     try {
       this.setData({ loading: true });
-      const outfit = prepareOutfit(await api.getGeneration(id));
+      let outfit = prepareOutfit(await api.getGeneration(id));
+      if (imageJobId) {
+        const imageJob = await api.getImageJob(imageJobId);
+        outfit = prepareOutfit(applyImageJob(outfit, imageJob));
+      }
       const home = await api.getHome();
+      this.setData({
+        loading: false,
+        outfit,
+        weather: home.weather,
+        dailyAura: home.dailyAura,
+        luckyColor: home.dailyAura.luckyColor,
+        favoriteColors: home.user.favoriteColors,
+        trendItems: home.trends
+      });
+    } catch (err) {
+      this.setData({ loading: false });
+      wx.showToast({ title: err.message || "结果加载失败", icon: "none" });
+    }
+  },
+
+  async loadImageJob(imageJobId) {
+    try {
+      this.setData({ loading: true });
+      const imageJob = await api.getImageJob(imageJobId);
+      const home = await api.getHome();
+      const baseOutfit = home.dailyOutfit || {};
+      const outfit = prepareOutfit(applyImageJob(baseOutfit, imageJob));
       this.setData({
         loading: false,
         outfit,

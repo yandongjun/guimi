@@ -82,6 +82,15 @@ function inferTrendFillSlots(items = []) {
 }
 
 function pickClosetItems(items = [], context = {}) {
+  if (context.sourceMode === "free") {
+    return {
+      usedClosetItems: [],
+      usedClosetItemIds: [],
+      usedClosetItemLabels: [],
+      trendFillSlots: ["内搭", "下装"],
+      sourceMix: ["trend_library"]
+    };
+  }
   const ranked = normalizeCloset(items)
     .map((item) => ({ item, score: scoreItem(item, context) }))
     .sort((left, right) => right.score - left.score);

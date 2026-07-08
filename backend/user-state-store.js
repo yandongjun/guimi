@@ -41,7 +41,8 @@ function normalizeState(seedState = {}, savedState = {}) {
     generationUsed: isNewDay ? 0 : (Number.isFinite(savedState.generationUsed) ? savedState.generationUsed : (seedState.generationUsed || 0)),
     adUnlocks: isNewDay ? 0 : (Number.isFinite(savedState.adUnlocks) ? savedState.adUnlocks : (seedState.adUnlocks || 0)),
     lastResetDate: today,
-    users
+    users,
+    closetItems: cloneJson(Array.isArray(savedState.closetItems) ? savedState.closetItems : (seedState.closetItems || []))
   };
 }
 

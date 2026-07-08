@@ -6,7 +6,8 @@
       <view class="studio-glow"></view>
       <view class="studio-floor"></view>
       <view class="model-halo"></view>
-      <image class="model" src="{{outfit.tryOnImage}}" mode="aspectFit" bindload="onCoverImageLoad" binderror="onCoverImageError"></image>
+      <image wx:if="{{outfit.tryOnImage}}" class="model" src="{{outfit.tryOnImage}}" mode="aspectFit" bindload="onCoverImageLoad" binderror="onCoverImageError"></image>
+      <view wx:elif="{{generationLocked || generating}}" class="model-pending">生成中</view>
       <view class="model-veil"></view>
       <view class="photo-soften"></view>
       <view class="cover-frame"></view>
@@ -38,14 +39,22 @@
         </view>
       </view>
 
-      <view class="headline">{{outfit.displayTitle}}</view>
+      <view class="headline editorial-title">
+        <text wx:for="{{outfit.compactTitleLines}}" wx:key="*this">{{item}}</text>
+      </view>
       <view class="mood">今天走{{outfit.displayMood}}</view>
-      <view wx:if="{{outfit.usedClosetItemLabels && outfit.usedClosetItemLabels.length}}" class="closet-source">
+      <view class="left-info-stack">
+        <view wx:for="{{outfit.editorialSummary}}" wx:key="*this" class="left-info-item">
+          <text class="left-info-label">{{item.name}}</text>
+          <text class="left-info-copy">{{item.copy}}</text>
+        </view>
+      </view>
+      <view wx:if="{{false}}" class="closet-source legacy-hidden">
         <text class="closet-source-label">衣橱引用</text>
         <text class="closet-source-copy">{{outfit.closetSourceText}}</text>
       </view>
 
-      <view class="reason-stack">
+      <view wx:if="{{false}}" class="reason-stack legacy-hidden">
         <view wx:for="{{outfit.summaryReasons}}" wx:key="name" class="reason">
           <text class="icon">{{index === 0 ? '♙' : index === 1 ? '◒' : '◌'}}</text>
           <view>
@@ -55,14 +64,35 @@
         </view>
       </view>
 
-      <text class="tag shoulder">{{outfit.visualNotes[0].text}}</text>
-      <text class="tag waist">{{outfit.visualNotes[1].text}}</text>
+      <text wx:if="{{false}}" class="tag shoulder legacy-hidden">{{outfit.visualNotes[0].text}}</text>
+      <text wx:if="{{false}}" class="tag waist legacy-hidden">{{outfit.visualNotes[1].text}}</text>
       <text class="look-code">LOOK 01</text>
 
-      <view class="palette">
+      <view wx:if="{{false}}" class="palette legacy-hidden">
         <view class="swatch cream"></view>
         <view class="swatch sage"></view>
         <view class="swatch denim"></view>
+      </view>
+      <view class="editorial-card">
+        <view class="palette editorial-palette">
+          <view class="swatch cream"></view>
+          <view class="swatch sage"></view>
+          <view class="swatch denim"></view>
+        </view>
+        <view class="feedback-actions">
+          <text catchtap="rateCurrent" data-value="like" class="feedback-button {{lastRating === 'like' ? 'active' : ''}}">赞</text>
+          <text catchtap="rateCurrent" data-value="dislike" class="feedback-button {{lastRating === 'dislike' ? 'active' : ''}}">踩</text>
+        </view>
+        <view wx:if="{{false}}" class="editorial-closet legacy-hidden">
+          <text class="editorial-closet-label">衣橱引用</text>
+          <text class="editorial-closet-copy">{{outfit.closetSourceText}}</text>
+        </view>
+        <view wx:if="{{false}}" class="editorial-reasons legacy-hidden">
+          <view wx:for="{{outfit.editorialSummary}}" wx:key="*this" class="editorial-reason">
+            <text class="editorial-index">{{item.name}}</text>
+            <text class="editorial-copy">{{item.copy}}</text>
+          </view>
+        </view>
       </view>
       <view class="brand-mark">
         <view class="brand-cn">
@@ -89,6 +119,27 @@
           >{{item}}</text>
         </view>
       </scroll-view>
+      <view class="option-label">风格补充</view>
+      <scroll-view scroll-x class="scenario-scroll style-scroll" show-scrollbar="{{false}}">
+        <view class="scenario-row">
+          <text
+            wx:for="{{styleOptions}}"
+            wx:key="*this"
+            data-style="{{item}}"
+            bindtap="selectStyle"
+            class="scenario style-option {{activeStyle === item ? 'active' : ''}} {{generating || generationLocked ? 'locked' : ''}}"
+          >{{item}}</text>
+        </view>
+      </scroll-view>
+      <view class="source-mode-row">
+        <text
+          wx:for="{{sourceModeOptions}}"
+          wx:key="key"
+          data-mode="{{item.key}}"
+          bindtap="selectSourceMode"
+          class="source-mode {{sourceMode === item.key ? 'active' : ''}} {{generating || generationLocked ? 'locked' : ''}}"
+        >{{item.label}}</text>
+      </view>
       <button class="generate-button {{generating || generationLocked ? 'disabled' : ''}}" loading="{{generating}}" disabled="{{generating || generationLocked}}" bindtap="regenerate">
         {{generating ? '正在提交生成请求' : generationLocked ? '搭配图生成中' : '重新生成一张'}}
       </button>

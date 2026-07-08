@@ -11,10 +11,10 @@ const path = require("path");
  */
 function getFileServerConfig() {
   return {
-    uploadUrl: String(process.env.FILE_SERVER_UPLOAD_URL || "").trim(),
-    baseUrl: String(process.env.FILE_SERVER_BASE_URL || "").trim(),
-    userName: String(process.env.FILE_SERVER_USER_NAME || "").trim(),
-    userKey: String(process.env.FILE_SERVER_USER_KEY || "").trim()
+    uploadUrl: String(process.env.FILE_SERVER_UPLOAD_URL || "https://upload.nextself.top/api/upload").trim(),
+    baseUrl: String(process.env.FILE_SERVER_BASE_URL || "https://upload.nextself.top").trim(),
+    userName: String(process.env.FILE_SERVER_USER_NAME || "guimi-backend").trim(),
+    userKey: String(process.env.FILE_SERVER_USER_KEY || "guimi-upload-2026").trim()
   };
 }
 

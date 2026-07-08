@@ -10,7 +10,9 @@
     "node": ">=18"
   },
   "dependencies": {
+    "@alicloud/imagerecog20190930": "^2.0.10",
     "@alicloud/imageseg20191230": "^4.0.1",
+    "@alicloud/oss-client": "^1.1.4",
     "pngjs": "^7.0.0"
   }
 }

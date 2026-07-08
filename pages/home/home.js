@@ -1,4 +1,5 @@
 const api = require("../../services/api");
+const homePresenter = require("./home-presenter");
 
 const themeMap = {
   beige: "米色",
@@ -11,6 +12,12 @@ const BLOCKING_IMAGE_JOB_STATUS = ["pending", "submitted", "queued", "running", 
 const IMAGE_JOB_FIRST_POLL_DELAY_MS = 1200;
 const IMAGE_JOB_POLL_DELAY_MS = 4000;
 const IMAGE_JOB_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_SCENE_OPTIONS = ["上班", "通勤", "约会", "聚会", "逛街"];
+const STYLE_OPTIONS = ["自然", "性感", "中性", "淑女", "知性", "复古"];
+const SOURCE_MODE_OPTIONS = [
+  { key: "wardrobe_first", label: "优先用衣橱" },
+  { key: "free", label: "自由搭配" }
+];
 
 function isImageJobBlocking(imageJob) {
   return Boolean(imageJob && BLOCKING_IMAGE_JOB_STATUS.includes(imageJob.status));
@@ -36,10 +43,21 @@ function isInteractionLocked(page) {
   return Boolean(page && page.data && (page.data.generating || page.data.generationLocked));
 }
 
+function compactTitleLines(title = "") {
+  const clean = String(title || "").replace(/\s+/g, "").replace(/\+/g, " ");
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return parts.slice(0, 2).map((item) => item.slice(0, 6));
+  if (clean.length <= 6) return [clean];
+  return [clean.slice(0, 5), clean.slice(5, 10)];
+}
+
 function prepareHomeOutfit(outfit) {
   if (!outfit) return outfit;
+  const recommendationSnapshot = outfit.recommendationSnapshot || {};
   return {
     ...outfit,
+    compactTitleLines: compactTitleLines(recommendationSnapshot.displayTitle || outfit.displayTitle || outfit.title || ""),
+    editorialSummary: homePresenter.stylingLogicSummary(outfit),
     closetSourceText: (outfit.usedClosetItemLabels || []).join(" / ")
   };
 }
@@ -47,10 +65,12 @@ function prepareHomeOutfit(outfit) {
 Page({
   data: {
     loading: true,
-    debugDisableChat: true,
+    debugDisableChat: false,
     generating: false,
     generationLocked: false,
     generationHint: "",
+    ratingSubmitting: false,
+    lastRating: "",
     quotaModalOpen: false,
     unlockingAd: false,
     subscribing: false,
@@ -60,7 +80,11 @@ Page({
     themeLabel: "米色",
     themeMenuOpen: false,
     activeScene: "上班",
-    sceneOptions: ["上班", "约会", "聚会", "出游", "更多"],
+    sceneOptions: DEFAULT_SCENE_OPTIONS,
+    styleOptions: STYLE_OPTIONS,
+    activeStyle: "自然",
+    sourceMode: "wardrobe_first",
+    sourceModeOptions: SOURCE_MODE_OPTIONS,
     themeOptions: [
       { key: "beige", label: "米色" },
       { key: "pink", label: "粉色" },
@@ -138,7 +162,7 @@ Page({
         quota: data.quota,
         closetCount: data.closetCount,
         trends: data.trends,
-        sceneOptions: data.sceneOptions || this.data.sceneOptions
+        sceneOptions: DEFAULT_SCENE_OPTIONS
       });
     } catch (err) {
       this.setData({ loading: false });
@@ -159,19 +183,26 @@ Page({
     });
   },
 
-  async selectScene(e) {
+  selectScene(e) {
     const scene = e.currentTarget.dataset.scene;
     console.log("[DEBUG-home-click] selectScene", { scene });
     if (this.data.generating || this.data.generationLocked) {
       wx.showToast({ title: this.data.generationHint || "搭配图生成中，请稍等", icon: "none" });
       return;
     }
-    if (scene === "更多") {
-      wx.showToast({ title: "更多场景下一版开放", icon: "none" });
-      return;
-    }
     this.setData({ activeScene: scene });
-    await this.generateForScene(scene);
+  },
+
+  selectStyle(e) {
+    const style = e.currentTarget.dataset.style;
+    if (this.data.generating || this.data.generationLocked) return;
+    this.setData({ activeStyle: style });
+  },
+
+  selectSourceMode(e) {
+    const sourceMode = e.currentTarget.dataset.mode;
+    if (this.data.generating || this.data.generationLocked) return;
+    this.setData({ sourceMode });
   },
 
   async generateForScene(scene = this.data.activeScene, options = {}) {
@@ -185,14 +216,24 @@ Page({
         scene,
         activeScene: this.data.activeScene,
         url: `${apiBaseUrl}/api/outfits/generate`,
-        payload: { scene, forceNew: Boolean(options.forceNew) }
+        payload: {
+          scene,
+          forceNew: Boolean(options.forceNew),
+          sourceMode: this.data.sourceMode,
+          stylePreference: this.data.activeStyle
+        }
       });
       this.setData({
         generating: true,
         generationLocked: true,
         generationHint: "正在提交生成请求..."
       });
-      const outfit = await api.generateOutfit({ scene, forceNew: Boolean(options.forceNew) });
+      const outfit = await api.generateOutfit({
+        scene,
+        forceNew: Boolean(options.forceNew),
+        sourceMode: this.data.sourceMode,
+        stylePreference: this.data.activeStyle
+      });
       const imageJob = sanitizeImageJob(outfit.imageJob);
       const imageJobBlocking = isImageJobBlocking(imageJob);
       const providerDebug = outfit.debugProviderRequest || null;
@@ -218,6 +259,7 @@ Page({
         generating: false,
         generationLocked: imageJobBlocking,
         generationHint: imageJobBlocking ? "搭配图生成中，请等待完成" : "",
+        lastRating: "",
         outfit: nextOutfit,
         quota: outfit.quota
       });
@@ -255,6 +297,42 @@ Page({
       generationLocked: this.data.generationLocked
     });
     this.generateForScene(this.data.activeScene, { forceNew: true });
+  },
+
+  async rateCurrent(e) {
+    if (this.data.ratingSubmitting) return;
+    const value = e.currentTarget.dataset.value;
+    const outfit = this.data.outfit || {};
+    const recommendationId = outfit.recommendationId
+      || (outfit.recommendationSnapshot && outfit.recommendationSnapshot.recommendationId)
+      || (outfit.imageJob && outfit.imageJob.recommendationId)
+      || "";
+    const generationId = recommendationId || outfit.generationId || (outfit.imageJob && outfit.imageJob.id) || outfit.id || "";
+    if (!generationId) {
+      wx.showToast({ title: "暂无可反馈的穿搭", icon: "none" });
+      return;
+    }
+    const liked = value === "like";
+    try {
+      this.setData({ ratingSubmitting: true });
+      await api.rateGeneration({
+        generationId,
+        recommendationId,
+        scores: {
+          fashion: liked ? 5 : 2,
+          wearable: liked ? 5 : 2
+        },
+        styleTags: outfit.styleTags || []
+      });
+      this.setData({
+        ratingSubmitting: false,
+        lastRating: value
+      });
+      wx.showToast({ title: liked ? "已记录喜欢" : "已记录不喜欢", icon: "none" });
+    } catch (err) {
+      this.setData({ ratingSubmitting: false });
+      wx.showToast({ title: err.message || "反馈失败", icon: "none" });
+    }
   },
 
   onCoverImageLoad() {
@@ -423,7 +501,15 @@ Page({
       return;
     }
     const id = this.data.outfit && this.data.outfit.generationId ? this.data.outfit.generationId : "";
-    wx.navigateTo({ url: `/pages/daily/daily?id=${id}&scene=${this.data.activeScene}` });
+    const imageJobId = this.data.outfit && this.data.outfit.imageJob && this.data.outfit.imageJob.id
+      ? this.data.outfit.imageJob.id
+      : "";
+    const query = [
+      id ? `id=${encodeURIComponent(id)}` : "",
+      imageJobId ? `imageJobId=${encodeURIComponent(imageJobId)}` : "",
+      `scene=${encodeURIComponent(this.data.activeScene)}`
+    ].filter(Boolean).join("&");
+    wx.navigateTo({ url: `/pages/daily/daily?${query}` });
   },
 
   goCapture() {

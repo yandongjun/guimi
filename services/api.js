@@ -45,14 +45,14 @@ function upload(path, filePath, formData = {}) {
         try {
           data = JSON.parse(res.data || "{}");
         } catch (error) {
-          reject(new Error("上传接口返回异常"));
+          reject(new Error(`上传接口返回异常：${url}；status=${res.statusCode || "unknown"}；body=${String(res.data || "").slice(0, 160)}`));
           return;
         }
         if (data && data.code === 0) {
           resolve(data.data);
           return;
         }
-        reject(new Error((data && data.message) || "上传失败"));
+        reject(new Error((data && data.message) || `上传失败：${url}；status=${res.statusCode || "unknown"}`));
       },
       fail: (error) => {
         reject(new Error(`后端不可达：${url}；${error.errMsg || "上传失败"}`));
@@ -106,6 +106,18 @@ module.exports = {
   addClosetItem(payload) {
     return useMock() ? unwrap(mockServer.addClosetItem(payload)) : request("/api/closet/items", "POST", payload);
   },
+  uploadClosetItem(payload = {}) {
+    if (useMock()) {
+      return unwrap(mockServer.addClosetItem(payload));
+    }
+    return upload("/api/closet/items/upload", payload.filePath, {});
+  },
+  uploadClosetPersonImage(payload = {}) {
+    if (useMock()) {
+      return unwrap(mockServer.addClosetItem(payload));
+    }
+    return upload("/api/closet/person-image/upload", payload.filePath, {});
+  },
   getSimilarProducts() {
     return useMock() ? unwrap(mockServer.getSimilarProducts()) : request("/api/products/similar");
   },
@@ -132,9 +144,22 @@ module.exports = {
   selectTestUser(userId) {
     return useMock() ? unwrap(mockServer.selectTestUser({ userId })) : request("/api/test-users/active", "POST", { userId });
   },
-  listImageJobs(status = "") {
-    const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  listImageJobs(status = "", options = {}) {
+    const queryParts = [];
+    if (status) queryParts.push(`status=${encodeURIComponent(status)}`);
+    if (options.pollProvider !== false) queryParts.push("pollProvider=true");
+    const query = queryParts.length ? `?${queryParts.join("&")}` : "";
     return request(`/api/image-jobs${query}`);
+  },
+  getImageJob(id) {
+    return request(`/api/image-jobs/${encodeURIComponent(id)}`);
+  },
+  recoverRemoteImageJobs(payload = {}) {
+    return request("/api/image-jobs/recover-remote", "POST", payload);
+  },
+  getMvpReadiness(options = {}) {
+    const query = options.pollProvider === false ? "?pollProvider=false" : "";
+    return request(`/api/debug/mvp-readiness${query}`);
   },
   createImageJob(payload) {
     return request("/api/image-jobs", "POST", payload);

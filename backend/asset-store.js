@@ -184,12 +184,12 @@ function resolveLocalFile(localPath) {
 
 function publicLocalPathForAbsolute(filePath) {
   const resolved = path.resolve(filePath);
-  if (isInsideRoot(workspaceRoot, resolved)) {
-    return normalizeLocalPath(path.relative(workspaceRoot, resolved).replace(/\\/g, "/"));
-  }
   if (isInsideRoot(runtimeRoot, resolved)) {
     const relative = path.relative(runtimeRoot, resolved).replace(/\\/g, "/");
     return normalizeLocalPath(`${runtimePrefix}/${relative}`);
+  }
+  if (isInsideRoot(workspaceRoot, resolved)) {
+    return normalizeLocalPath(path.relative(workspaceRoot, resolved).replace(/\\/g, "/"));
   }
   return null;
 }

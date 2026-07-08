@@ -25,15 +25,38 @@
 
   <view wx:if="{{loading}}" class="card section empty">正在打开衣橱...</view>
 
-  <view wx:else class="closet-list section">
+  <view wx:if="{{uploadError}}" class="card section upload-error">
+    <text class="eyebrow">上传失败</text>
+    <view class="upload-error-copy">{{uploadError}}</view>
+    <view class="upload-error-hint">错误已写入 Console，可在调试器 Console 面板查看 [closet] upload failed。</view>
+  </view>
+
+  <view wx:if="{{!loading}}" class="closet-list section">
     <block wx:for="{{items}}" wx:key="id">
       <view wx:if="{{activeCategory === 'all' || activeCategory === item.category}}" class="card item-card">
-        <view class="item-visual color-{{index}}"></view>
+        <view class="item-visual color-{{index}}">
+          <image wx:if="{{item.image}}" class="item-image" src="{{item.image}}" mode="aspectFill" />
+          <text wx:else class="item-fallback">{{item.categoryLabel}}</text>
+        </view>
         <view class="item-main">
           <view class="item-name">{{item.name}}</view>
-          <view class="item-meta">{{item.color}} · 保暖 {{item.warmth}} · 正式 {{item.formality}}</view>
+          <view class="item-meta-grid">
+            <view wx:for="{{item.displayMetaParts}}" wx:key="label" class="item-meta-part">
+              <text class="item-meta-label">{{item.label}}</text>
+              <text class="item-meta-value">{{item.value}}</text>
+            </view>
+          </view>
+          <view class="item-path {{item.analysisStatus === 'success' ? 'success' : ''}}">
+            {{item.analysisStatus === 'success' ? '云识别完成' : (item.imageDownloadStatus === 'local_ready' ? '本地资产已缓存' : '等待云识别')}}
+          </view>
+          <view
+            wx:if="{{item.displayAnalysisMessage}}"
+            class="analysis-status {{item.analysisStatus === 'success' ? 'success' : 'warning'}}"
+          >
+            {{item.displayAnalysisMessage}}
+          </view>
           <view class="tag-row">
-            <text wx:for="{{item.tags}}" wx:for-item="tag" wx:key="*this" class="mini-tag">{{tag}}</text>
+            <text wx:for="{{item.displayTags || item.styleLabels}}" wx:for-item="tag" wx:key="*this" class="mini-tag">{{tag}}</text>
           </view>
         </view>
       </view>
@@ -43,7 +66,7 @@
   <view class="card section">
     <view class="row space-between">
       <text class="eyebrow">衣橱缺口</text>
-      <button class="tiny-button" bindtap="addMockItem">加衣物</button>
+      <button class="tiny-button" loading="{{uploading}}" bindtap="addMockItem">{{uploading ? '整理中' : '加衣物'}}</button>
     </view>
     <view wx:for="{{gaps}}" wx:key="*this" class="gap-item">{{item}}</view>
   </view>

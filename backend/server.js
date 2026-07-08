@@ -6,17 +6,32 @@ const imageTaskStore = require("./image-task-store");
 const moxingImage = require("./providers/moxing-image");
 const imageDownloader = require("./image-downloader");
 const imageVariants = require("./image-variants");
+const imageJobPresenter = require("./image-job-presenter");
 const assetStore = require("./asset-store");
 const userStateStore = require("./user-state-store");
+const recommendationStore = require("./recommendation-store");
+const recommendationService = require("./recommendation-service");
+const imageGenerationService = require("./image-generation-service");
+const stylingNotes = require("./styling-notes");
 const backgroundRemoval = require("./providers/background-removal");
+const publicImageService = require("./public-image-service");
 const fileServerUploader = require("./file-server-uploader");
+const aliyunOssUploader = require("./aliyun-oss-uploader");
 const lightCloset = require("./light-closet");
+const closetAssets = require("./closet-assets");
+const closetDisplay = require("./closet-display");
+const closetUploadPresenter = require("./closet-upload-presenter");
+const clothingAnalysis = require("./clothing-analysis-service");
+const clothingSegmentation = require("./clothing-segmentation-service");
+const mvpDebugService = require("./mvp-debug-service");
+const { luckyColorForZodiac } = require("../data/zodiac-lucky-colors");
 
 const persistedState = userStateStore.loadState({
   activeUserId: "user-a",
   generationUsed: 0,
   adUnlocks: 0,
-  users: mock.testUsers
+  users: mock.testUsers,
+  closetItems: mock.closet
 });
 
 const state = {
@@ -25,11 +40,13 @@ const state = {
   adUnlocks: persistedState.adUnlocks,
   lastResetDate: persistedState.lastResetDate,
   users: persistedState.users,
+  closetItems: persistedState.closetItems || mock.closet,
   generations: {},
   ratings: []
 };
 
 const ACTIVE_IMAGE_JOB_STATUS = ["pending", "submitted", "queued", "running", "processing"];
+const RECOMMENDATION_STYLIST_PROMPT = "你是一位专业时尚穿搭顾问，了解最新时尚趋势。请基于用户画像、身材策略、天气、场景、用户衣橱和平台衣服库，生成一套现实可穿的结构化穿搭方案。优先使用用户衣橱；只有用户衣橱无法满足场景、天气或审美目标时，才从平台衣服库或者互联网信息补位。";
 
 function checkDailyReset() {
   const today = new Date().toISOString().split("T")[0];
@@ -42,7 +59,8 @@ function checkDailyReset() {
       generationUsed: state.generationUsed,
       adUnlocks: state.adUnlocks,
       lastResetDate: state.lastResetDate,
-      users: state.users
+      users: state.users,
+      closetItems: state.closetItems
     });
   }
 }
@@ -179,6 +197,11 @@ function versionPublicAsset(asset, version) {
   };
 }
 
+function rehydratePublicAsset(asset, req) {
+  if (!asset || !asset.id) return asset || null;
+  return assetStore.getAsset(asset.id, req) || asset;
+}
+
 function weatherForUser(user) {
   return {
     ...mock.weather,
@@ -187,10 +210,7 @@ function weatherForUser(user) {
 }
 
 function luckyColorForUser(user) {
-  return (user && user.zodiacLuckyColor)
-    || (user && user.luckyColor)
-    || ((user && user.favoriteColors || [])[0])
-    || mock.dailyAura.luckyColor;
+  return luckyColorForZodiac(user && user.zodiac ? user.zodiac : mock.dailyAura.zodiac);
 }
 
 function sceneSlug(scene) {
@@ -254,35 +274,33 @@ function bodyScanVariantMetaFromAbsolute(filePath, req, size) {
  * 异常：当本地路径无效时抛出异常；上传失败时默认回退本地地址。
  */
 async function bodyScanVariantMetaWithRemote(filePath, req, size, options = {}) {
-  const baseMeta = bodyScanVariantMetaFromAbsolute(filePath, req, size);
-  if (!baseMeta) {
-    throw new Error(`无法为文件生成资源信息: ${filePath}`);
-  }
-  if (!fileServerUploader.isFileServerConfigured()) {
-    return baseMeta;
-  }
-  try {
-    const uploadResult = await fileServerUploader.uploadToFileServer(filePath, {
-      originalName: options.originalName || path.basename(filePath),
-      mimeType: baseMeta.mimeType
-    });
-    return {
-      ...baseMeta,
-      remoteUrl: uploadResult.publicUrl,
-      url: uploadResult.publicUrl,
-      previewUrl: uploadResult.publicUrl
-    };
-  } catch (error) {
+  const published = await publicImageService.publishLocalImage(filePath, req, {
+    id: options.id,
+    type: options.type || "body_scan_variant",
+    group: options.group || "body_scan_variants",
+    slot: options.slot || "",
+    originalName: options.originalName || path.basename(filePath),
+    source: options.source || "body_scan_variant",
+    size,
+    meta: options.meta || {}
+  });
+  if (published.fileServerError) {
     console.log("[FILE-SERVER-UPLOAD] derived asset fallback", {
       label: options.label || "",
       filePath,
-      message: error.message || "unknown file server upload error"
+      message: published.fileServerError
     });
-    return {
-      ...baseMeta,
-      fileServerError: error.message || "unknown file server upload error"
-    };
   }
+  return {
+    width: size && size.width ? size.width : 0,
+    height: size && size.height ? size.height : 0,
+    localPath: published.localPath,
+    url: published.url,
+    previewUrl: published.previewUrl,
+    remoteUrl: published.remoteUrl,
+    mimeType: published.mimeType,
+    fileServerError: published.fileServerError
+  };
 }
 
 function buildBodyScanVariantMeta(variants, req) {
@@ -615,6 +633,32 @@ function referenceImageInputs(referenceImages = [], req) {
     .slice(0, 3);
 }
 
+function closetReferenceImages(items = [], req) {
+  return (items || [])
+    .map((item) => {
+      if (!item) return null;
+      const image = item.publicImageUrl || item.remoteImageUrl || item.sourceImageUrl || item.imageUrl || item.image || item.previewUrl || item.remoteUrl || item.localPath || "";
+      if (!image && !item.assetId) return null;
+      const referenceImage = {
+        slot: item.category || "",
+        assetId: item.assetId || "",
+        localPath: /^https?:\/\//i.test(image) ? "" : image,
+        remoteUrl: item.remoteUrl || "",
+        url: /^https?:\/\//i.test(image) ? image : "",
+        previewUrl: item.previewUrl || (/^https?:\/\//i.test(image) ? image : ""),
+        mimeType: item.mimeType || ""
+      };
+      const publicReference = toPublicReferenceImage(referenceImage, req);
+      if (!publicReference) return null;
+      return {
+        ...publicReference,
+        closetItemId: item.itemId || item.id || "",
+        closetItemLabel: item.name || item.subCategoryLabel || item.categoryLabel || ""
+      };
+    })
+    .filter(Boolean);
+}
+
 function mergeBodyProfile(profile = {}, patch = {}) {
   return {
     ...profile,
@@ -630,7 +674,8 @@ function persistRuntimeState() {
     generationUsed: state.generationUsed,
     adUnlocks: state.adUnlocks,
     lastResetDate: state.lastResetDate,
-    users: state.users
+    users: state.users,
+    closetItems: state.closetItems
   });
 }
 
@@ -644,10 +689,15 @@ function activeBodyProfile() {
 
 function activeAura() {
   const currentUser = activeUser();
+  const luckyColor = luckyColorForUser(currentUser);
   return {
     ...mock.dailyAura,
     zodiac: currentUser.zodiac || mock.dailyAura.zodiac,
-    luckyColor: (currentUser.favoriteColors || [])[0] || mock.dailyAura.luckyColor
+    luckyColor: luckyColor.color,
+    luckyColorHex: luckyColor.hex,
+    luckyColorPart: luckyColor.part,
+    stylingHint: luckyColor.stylingHint,
+    luckyColorSource: luckyColor.source
   };
 }
 
@@ -655,35 +705,60 @@ function activeWeather() {
   return weatherForUser(activeUser());
 }
 
+function sortJobsByUpdatedDesc(jobs) {
+  return jobs.sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")));
+}
+
+function sortJobsByCreatedDesc(jobs) {
+  return jobs.sort((left, right) => String(right.createdAt || "").localeCompare(String(left.createdAt || "")));
+}
+
+function userSceneImageJobs(userId, scene = "") {
+  return imageTaskStore
+    .listJobs()
+    .filter((item) =>
+      item.userId === userId
+      && item.scene
+      && (!scene || item.scene === scene)
+    );
+}
+
+function latestActiveImageJob(userId, scene = "") {
+  return sortJobsByUpdatedDesc(
+    userSceneImageJobs(userId, scene).filter((item) => ACTIVE_IMAGE_JOB_STATUS.includes(item.status))
+  )[0] || null;
+}
+
+function latestReadyImageJob(userId, scene = "") {
+  return sortJobsByCreatedDesc(
+    userSceneImageJobs(userId, scene).filter((item) => item.status === "ready" && item.imageUrl)
+  )[0] || null;
+}
+
+function isRemoteImageUrl(imageUrl = "") {
+  return /^https?:\/\//i.test(String(imageUrl || ""));
+}
+
 function outfitWithAsset(scene, req, userId = activeUser().id) {
   const currentUser = state.users.find((item) => item.id === userId) || activeUser();
   const base = mock.outfitByScene[scene]
     || mock.outfitByScene[(currentUser.scenes || [])[0]]
     || mock.outfitByScene["上班"];
-  const latestJob = imageTaskStore
-    .listJobs()
-    .filter((item) =>
-      item.userId === currentUser.id
-      && item.scene === scene
-      && (
-        ACTIVE_IMAGE_JOB_STATUS.includes(item.status)
-        || ["ready", "failed", "incomplete"].includes(item.status)
-      )
-    )
-    .sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0];
-  if (latestJob && ACTIVE_IMAGE_JOB_STATUS.includes(latestJob.status)) {
+  const activeJob = latestActiveImageJob(currentUser.id, scene);
+  if (activeJob) {
     return {
       ...base,
-      id: latestJob.id,
-      title: latestJob.outfitTitle || base.title,
-      displayTitle: latestJob.outfitTitle || base.displayTitle || base.title,
+      scene: activeJob.scene || scene,
+      id: activeJob.id,
+      title: activeJob.outfitTitle || base.title,
+      displayTitle: activeJob.outfitTitle || base.displayTitle || base.title,
       targetUserId: currentUser.id,
       targetUserName: currentUser.nickname,
-      expectedImagePath: latestJob.targetPath || latestJob.imageUrl || "",
-      imageJob: publicImageJob(latestJob, req)
+      expectedImagePath: activeJob.targetPath || activeJob.imageUrl || "",
+      imageJob: publicImageJob(activeJob, req)
     };
   }
-  const generatedJob = latestJob && latestJob.status === "ready" ? latestJob : null;
+  const generatedJob = latestReadyImageJob(currentUser.id, scene);
   if (generatedJob) {
     const generatedAsset = versionPublicAsset(
       generatedJob.imageAsset || assetStore.getAssetByLocalPath(generatedJob.imageUrl, req),
@@ -691,6 +766,7 @@ function outfitWithAsset(scene, req, userId = activeUser().id) {
     );
     return {
       ...base,
+      scene: generatedJob.scene || scene,
       id: generatedJob.id,
       title: generatedJob.outfitTitle || base.title,
       displayTitle: generatedJob.outfitTitle || base.displayTitle || base.title,
@@ -698,7 +774,7 @@ function outfitWithAsset(scene, req, userId = activeUser().id) {
       targetUserName: currentUser.nickname,
       expectedImagePath: generatedJob.targetPath || generatedJob.imageUrl || "",
       tryOnAsset: generatedAsset,
-      tryOnImage: generatedAsset ? generatedAsset.previewUrl : withCacheBust(generatedJob.imageUrl, generatedJob.updatedAt),
+      tryOnImage: imageJobPresenter.publicGeneratedImageUrl(generatedJob, generatedAsset, req),
       imageJob: publicImageJob(generatedJob, req)
     };
   }
@@ -714,6 +790,7 @@ function outfitWithAsset(scene, req, userId = activeUser().id) {
   const asset = assetId ? assetStore.getAsset(assetId, req) : assetStore.getAssetByLocalPath(job.imagePath, req);
   return {
     ...base,
+    scene: job.scene || scene,
     id: job.id,
     title: job.outfitTitle,
     displayTitle: job.outfitTitle,
@@ -728,31 +805,26 @@ function outfitWithAsset(scene, req, userId = activeUser().id) {
 function preferredHomeScene(userId = activeUser().id) {
   const currentUser = state.users.find((item) => item.id === userId) || activeUser();
   const fallbackScene = (currentUser.scenes || [])[0] || "上班";
-  const latestJob = imageTaskStore
-    .listJobs()
-    .filter((item) =>
-      item.userId === currentUser.id
-      && item.scene
-      && (
-        ACTIVE_IMAGE_JOB_STATUS.includes(item.status)
-        || ["ready", "failed", "incomplete"].includes(item.status)
-      )
-    )
-    .sort((left, right) => String(right.updatedAt || "").localeCompare(String(left.updatedAt || "")))[0];
+  const latestJob = latestActiveImageJob(currentUser.id) || latestReadyImageJob(currentUser.id);
   return latestJob && latestJob.scene ? latestJob.scene : fallbackScene;
 }
 
-function generationPayload(scene, req, userId = activeUser().id) {
+function generationPayload(scene, req, userId = activeUser().id, options = {}) {
   const outfit = outfitWithAsset(scene, req, userId);
   const currentUser = state.users.find((item) => item.id === userId) || activeUser();
   const profile = mergeBodyProfile(currentUser.bodyProfile || mock.bodyProfile, {});
-  const brief = outfitBriefFor(currentUser, profile, scene, outfit);
+  const recommendationSnapshot = recommendationSnapshotFor(currentUser, profile, scene, outfit, options);
+  const brief = recommendationSnapshot.outfitBrief;
   const generationId = `${outfit.id}-${Date.now()}`;
   const payload = {
     generationId,
+    recommendationId: options.recommendationId || recommendationSnapshot.recommendationId || "",
     status: "success",
     scene,
+    stylePreference: options.stylePreference || "",
+    sourceMode: options.sourceMode || "wardrobe_first",
     ...outfit,
+    recommendationSnapshot,
     outfitBrief: brief,
     usedClosetItems: brief.usedClosetItems,
     usedClosetItemIds: brief.usedClosetItemIds,
@@ -767,32 +839,56 @@ function generationPayload(scene, req, userId = activeUser().id) {
   return payload;
 }
 
-function outfitBriefFor(user, profile, scene, outfit) {
-  const closetPick = lightCloset.pickClosetItems(mock.closet, {
+function outfitBriefFor(user, profile, scene, outfit, options = {}) {
+  return recommendationService.buildOutfitBrief({
+    user,
+    profile,
     scene,
-    bodyStrategies: profile.strategyTags || profile.stylingStrategies || [],
-    favoriteColors: user.favoriteColors || [],
-    rejectedStyleTags: user.rejectedStyleTags || []
+    outfit,
+    closetItems: state.closetItems || mock.closet,
+    sourceMode: options.sourceMode || "wardrobe_first",
+    stylePreference: options.stylePreference || "",
+    recommendationId: options.recommendationId || ""
   });
-  return {
-    scene,
-    mood: outfit.displayMood || outfit.mood || "",
-    title: outfit.displayTitle || outfit.title || "",
-    usedClosetItems: closetPick.usedClosetItems,
-    usedClosetItemIds: closetPick.usedClosetItemIds,
-    usedClosetItemLabels: closetPick.usedClosetItemLabels,
-    trendFillSlots: closetPick.trendFillSlots,
-    sourceMix: closetPick.sourceMix,
-    closetUsageCopy: closetPick.usedClosetItemLabels.length
-      ? `今天用了你衣橱里的${closetPick.usedClosetItemLabels.join("、")}。`
-      : "今天先用趋势库搭一版，上传常穿衣服后会更像你的日常。"
-  };
 }
 
-function attachOutfitBrief(outfit, user, profile, scene) {
-  const brief = outfitBriefFor(user, profile, scene, outfit || {});
+function compactTextList(items = []) {
+  return (items || [])
+    .map((item) => {
+      if (!item) return "";
+      if (typeof item === "string") return item.trim();
+      if (typeof item === "object") {
+        if (item.name && item.copy) return `${item.name}：${item.copy}`;
+        if (item.text) return String(item.text).trim();
+        if (item.copy) return String(item.copy).trim();
+        if (item.reason) return String(item.reason).trim();
+      }
+      return String(item || "").trim();
+    })
+    .filter((item) => item && item !== "[object Object]")
+    .filter(Boolean);
+}
+
+function recommendationSnapshotFor(user, profile, scene, outfit = {}, options = {}) {
+  const brief = outfitBriefFor(user, profile, scene, outfit || {}, options);
+  return recommendationService.buildRecommendationSnapshot({
+    user,
+    profile,
+    scene,
+    outfit,
+    closetItems: state.closetItems || mock.closet,
+    sourceMode: options.sourceMode || brief.sourceMode || "wardrobe_first",
+    stylePreference: options.stylePreference || brief.stylePreference || "",
+    recommendationId: options.recommendationId || ""
+  }, brief);
+}
+
+function attachOutfitBrief(outfit, user, profile, scene, options = {}) {
+  const recommendationSnapshot = recommendationSnapshotFor(user, profile, scene, outfit || {}, options);
+  const brief = recommendationSnapshot.outfitBrief;
   return {
     ...(outfit || {}),
+    recommendationSnapshot,
     outfitBrief: brief,
     usedClosetItems: brief.usedClosetItems,
     usedClosetItemIds: brief.usedClosetItemIds,
@@ -803,35 +899,41 @@ function attachOutfitBrief(outfit, user, profile, scene) {
   };
 }
 
-function buildImagePrompt({ user, profile, scene, outfit, weather, luckyColor }) {
+function buildImagePrompt({ user, profile, scene, outfit, weather, luckyColor, recommendationSnapshot, sourceMode = "wardrobe_first", stylePreference = "" }) {
   const favoriteColors = (user.favoriteColors || []).slice(0, 3).join("、") || "无特别偏好";
   const weatherText = `${weather.nightTemp || 0}-${weather.dayTemp || 0}摄氏度，${weather.text || "天气未知"}`;
-  const brief = outfitBriefFor(user, profile, scene, outfit);
-  const closetText = brief.usedClosetItemLabels.length
+  const snapshot = recommendationSnapshot || recommendationSnapshotFor(user, profile, scene, outfit);
+  const brief = snapshot.outfitBrief;
+  const closetText = sourceMode === "free"
+    ? "本次用户选择自由搭配，不强制引用用户衣橱；请根据场景、天气、身材策略和审美目标完成现实可穿搭配。"
+    : brief.usedClosetItemLabels.length
     ? `本次必须参考并使用用户衣橱里的这些单品：${brief.usedClosetItemLabels.join("、")}。`
     : "用户衣橱暂无可用单品，本次使用趋势库生成参考穿搭。";
-  const reasons = (outfit.reasons || [])
-    .slice(0, 3)
-    .map((item, index) => `${index + 1}.${item}`)
-    .join(" ");
+  const styleText = stylePreference ? `本次风格偏好是${stylePreference}。` : "";
   return [
     `请生成一张穿搭图，不改变参考图中人物的身高比例和胖瘦、面部特征。`,
     `参考图为同一人物的正面、侧面、背面三视图合成参考图，请严格保持同一人物身份一致。`,
     `人物信息：${user.nickname}，${user.ageRange || "年龄未知"}，${user.city || "城市未知"}，${user.height || 0}cm/${user.weight || 0}kg，体型${profile.bodyType || "未知"}。`,
     `天气情况：${weatherText}。`,
     `请结合用户喜欢颜色${favoriteColors}，以及幸运色${luckyColor || "未提供"}，生成一张${scene}场景下的穿搭图。`,
+    styleText,
     `本次穿搭主题是${outfit.displayTitle || outfit.title || "今日推荐穿搭"}。`,
     closetText,
-    `要求图片为无背景的透明PNG图，画面中只有一位人物，为穿搭完成后的全身效果图。`,
-    `请输出真实透明背景 PNG；如果模型无法保证真实 alpha 透明，请改用干净暖白纯色摄影棚背景。禁止出现灰白棋盘格、透明预览格、素材软件预览底、截图 UI、水印、边框或网格。`,
-    `请在图上用简洁中文写明这样穿搭的理由，理由可参考：${reasons || "根据天气、身材比例和场景完成搭配"}。`,
+    `Only generate a clean full-body studio fashion try-on photo of the person wearing the outfit.`,
+    `This is a plain photography output, not a poster, not a magazine layout, not an infographic, not a UI mockup, and not a recommendation card.`,
+    `The image must contain only the person and the outfit. Do not put any text, Chinese characters, English words, title, caption, label, arrow, number, bullet, button, UI element, infographic, annotation, callout line, or styling note inside the image.`,
+    `如果参考图里包含衣橱单品图片，请把这些上衣、外套、裤子、鞋包作为真实服装来源，穿到同一位人物身上，不要只作为背景素材。`,
+    `要求图片为完整的时尚棚拍全身照片，画面中只有一位人物，使用干净暖白纯色摄影棚背景和柔和自然光。`,
+    `不要透明背景，不要 alpha 透明，不要灰白棋盘格，不要透明预览格，不要素材软件预览底，不要截图 UI、水印、边框或网格。`,
+    `Outfit reasons are shown by the app UI outside the image. Never render explanation text, styling notes, numbered reasons, or layout copy inside the generated image.`,
     `人物需要自然真实、适合日常分享，服装材质和比例可信，不要出现多人、背景、道具、地面、墙面或额外装饰。`
   ].join(" ");
 }
 
-function buildPromptContract({ user, profile, scene, outfit, weather, luckyColor }) {
+function buildPromptContract({ user, profile, scene, outfit, weather, luckyColor, recommendationSnapshot, referenceImageCount, closetReferenceImageCount, sourceMode = "wardrobe_first", stylePreference = "" }) {
   const preferredReferences = preferredCompositeReferenceImages(profile);
-  const brief = outfitBriefFor(user, profile, scene, outfit);
+  const snapshot = recommendationSnapshot || recommendationSnapshotFor(user, profile, scene, outfit);
+  const brief = snapshot.outfitBrief;
   return {
     ageRange: user.ageRange || "",
     city: user.city || "",
@@ -841,12 +943,19 @@ function buildPromptContract({ user, profile, scene, outfit, weather, luckyColor
     strategies: profile.strategies || [],
     avoid: profile.avoid || [],
     scene,
+    sourceMode,
+    stylePreference,
     outfitTitle: outfit.displayTitle || outfit.title || "",
     favoriteColors: user.favoriteColors || [],
     luckyColor: luckyColor || "",
     weatherText: weather && weather.text ? weather.text : "",
     weatherTempRange: weather ? `${weather.nightTemp || 0}-${weather.dayTemp || 0}` : "",
-    referenceImageCount: preferredReferences.length || (profile.referenceImages || []).length,
+    referenceImageCount: Number.isFinite(referenceImageCount)
+      ? referenceImageCount
+      : (preferredReferences.length || (profile.referenceImages || []).length),
+    closetReferenceImageCount: Number.isFinite(closetReferenceImageCount)
+      ? closetReferenceImageCount
+      : closetReferenceImages(brief.usedClosetItems, null).length,
     usedClosetItemIds: brief.usedClosetItemIds,
     usedClosetItemLabels: brief.usedClosetItemLabels,
     trendFillSlots: brief.trendFillSlots,
@@ -887,24 +996,69 @@ function validateImagePromptContract(job) {
   };
 }
 
-function imageJobPayload(userId, scene) {
+async function recommendationForImageJob(user, profile, scene, outfit, options = {}) {
+  return recommendationService.recommendOutfit({
+    user,
+    profile,
+    scene,
+    outfit,
+    closetItems: state.closetItems || mock.closet,
+    weather: weatherForUser(user),
+    luckyColor: luckyColorForUser(user).color,
+    recommendationId: options.recommendationId || "",
+    sourceMode: options.sourceMode || "wardrobe_first",
+    stylePreference: options.stylePreference || ""
+  }, options.recommendationProviders ? { providers: options.recommendationProviders } : {});
+}
+
+async function imageJobPayload(userId, scene, options = {}) {
   const user = state.users.find((item) => item.id === userId) || state.users[0] || mock.user;
+  const sourceMode = options.sourceMode || "wardrobe_first";
+  const stylePreference = options.stylePreference || "";
   const profile = activeUser().id === user.id ? activeBodyProfile() : mergeBodyProfile(user.bodyProfile || mock.bodyProfile, {});
   const outfit = mock.outfitByScene[scene] || mock.outfitByScene[user.scenes && user.scenes[0]] || mock.outfitByScene["上班"];
   const job = mock.manualImageJobs.find((item) => item.userId === user.id && item.scene === scene);
   const weather = weatherForUser(user);
-  const luckyColor = luckyColorForUser(user);
+  const luckyColorInfo = luckyColorForUser(user);
+  const luckyColor = luckyColorInfo.color;
+  const recommendation = await recommendationForImageJob(user, profile, scene, outfit, {
+    recommendationId: options.recommendationId || "",
+    sourceMode,
+    stylePreference
+  });
+  const recommendationSnapshot = recommendation.recommendationSnapshot || recommendationSnapshotFor(user, profile, scene, outfit, {
+    recommendationId: options.recommendationId || "",
+    sourceMode,
+    stylePreference
+  });
+  const brief = recommendationSnapshot.outfitBrief;
   const compositeReferenceImages = preferredCompositeReferenceImages(profile, { width: 1024, height: 1536 });
-  const referenceImages = compositeReferenceImages.length
+  const bodyReferenceImages = compositeReferenceImages.length
     ? compositeReferenceImages
     : publicReferenceImages(profile.referenceImages || [], null);
+  const closetReferences = closetReferenceImages(brief.usedClosetItems, null);
+  const selectedBodyReferences = bodyReferenceImages.slice(0, closetReferences.length ? 1 : 3);
+  const selectedClosetReferences = closetReferences.slice(0, Math.max(0, 3 - selectedBodyReferences.length));
+  const referenceImages = [
+    ...selectedBodyReferences,
+    ...selectedClosetReferences
+  ];
   const referenceImageInputsList = referenceImageInputs(referenceImages, null);
-  const targetPath = job
-    ? job.imagePath.replace(/\.jpe?g$/i, ".png")
-    : `${assetStore.runtimePrefix}/generated/users/${user.id}-${sceneSlug(scene)}.png`;
-  const prompt = buildImagePrompt({ user, profile, scene, outfit, weather, luckyColor });
-  const promptContract = buildPromptContract({ user, profile, scene, outfit, weather, luckyColor });
-  const brief = outfitBriefFor(user, profile, scene, outfit);
+  const targetPath = `${assetStore.runtimePrefix}/generated/users/${user.id}-${sceneSlug(scene)}.jpg`;
+  const prompt = buildImagePrompt({ user, profile, scene, outfit, weather, luckyColor, recommendationSnapshot, sourceMode, stylePreference });
+  const promptContract = buildPromptContract({
+    user,
+    profile,
+    scene,
+    outfit,
+    weather,
+    luckyColor,
+    recommendationSnapshot,
+    referenceImageCount: referenceImageInputsList.length,
+    closetReferenceImageCount: closetReferences.length,
+    sourceMode,
+    stylePreference
+  });
   const negativePrompt = [
     "不要改变参考人物五官",
     "不要改变身高比例",
@@ -915,13 +1069,37 @@ function imageJobPayload(userId, scene) {
     "不要道具",
     "不要截断头部",
     "不要截断脚部",
-    "不要畸形手脚"
+    "不要畸形手脚",
+    "no text",
+    "no Chinese characters",
+    "no English words",
+    "no typography",
+    "no captions",
+    "no labels",
+    "no arrows",
+    "no numbers",
+    "no bullets",
+    "no callout lines",
+    "no styling notes",
+    "no UI elements",
+    "no infographic",
+    "no poster layout",
+    "no magazine layout",
+    "no recommendation card"
   ].join(", ");
   return {
     userId: user.id,
     userName: user.nickname,
     scene,
+    sourceMode,
+    stylePreference,
+    recommendationId: options.recommendationId || "",
     outfitTitle: job ? job.outfitTitle : outfit.displayTitle,
+    recommendationSnapshot,
+    recommendationProvider: recommendation.provider || "local_recommendation",
+    recommendationProviderAttempts: recommendation.providerAttempts || [],
+    recommendationConfidence: recommendation.confidence,
+    recommendationReasoningSummary: recommendation.reasoningSummary || "",
     outfitBrief: brief,
     usedClosetItemIds: brief.usedClosetItemIds,
     usedClosetItemLabels: brief.usedClosetItemLabels,
@@ -946,40 +1124,109 @@ function imageJobPayload(userId, scene) {
   };
 }
 
-function ensureImageJob(userId, scene, options = {}) {
-  const payload = imageJobPayload(userId, scene);
+async function ensureImageJob(userId, scene, options = {}) {
+  const payload = await imageJobPayload(userId, scene, options);
   if (!options.forceNew) {
     const existing = imageTaskStore.listJobs().find((item) => item.id === payload.targetPath.split("/").pop().replace(/\.(png|jpg|jpeg)$/i, "") || item.id === `${userId}-${scene}`);
     if (existing) return existing;
   }
   const manual = mock.manualImageJobs.find((item) => item.userId === userId && item.scene === scene);
+  const jobId = options.forceNew || !manual
+    ? `img-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+    : manual.id;
   return imageTaskStore.createJob({
     ...payload,
-    id: options.forceNew ? undefined : (manual ? manual.id : undefined),
+    id: jobId,
+    recommendationId: options.recommendationId || payload.recommendationId || "",
+    targetPath: imageJobPresenter.generatedTargetPathForJob(userId, scene, jobId),
     source: options.forceNew ? "outfit_regenerate" : "outfit_generate"
+  });
+}
+
+function selectedRecommendationItemsFromBrief(brief = {}) {
+  return (brief.usedClosetItems || []).map((item) => ({
+    itemId: item.itemId || item.id || "",
+    name: item.name || item.subCategoryLabel || item.categoryLabel || "",
+    source: item.sourceType || "wardrobe",
+    slot: item.categoryLabel || item.category || "",
+    why: (item.bodyStrategyLabels || item.styleLabels || []).slice(0, 2).join("、")
+  }));
+}
+
+function createRecommendationFromPayload(payload = {}, options = {}) {
+  const snapshot = payload.recommendationSnapshot || {};
+  const brief = snapshot.outfitBrief || payload.outfitBrief || {};
+  return recommendationStore.createRecommendation({
+    userId: payload.userId || "",
+    scene: payload.scene || "",
+    stylePreference: payload.stylePreference || options.stylePreference || "",
+    sourceMode: payload.sourceMode || options.sourceMode || "wardrobe_first",
+    inputSnapshot: {
+      weather: payload.weather || null,
+      bodyStrategies: (payload.bodyProfile && (payload.bodyProfile.strategyTags || payload.bodyProfile.stylingStrategies)) || [],
+      favoriteColors: payload.favoriteColors || [],
+      rejectedStyleTags: []
+    },
+    selectedItems: selectedRecommendationItemsFromBrief(brief),
+    selectedItemIds: brief.usedClosetItemIds || payload.usedClosetItemIds || [],
+    missingSlots: brief.trendFillSlots || payload.trendFillSlots || [],
+    appliedRuleIds: [],
+    stylingNotes: snapshot.stylingNotes || [],
+    imagePrompt: payload.prompt || payload.renderPrompt || "",
+    aiMeta: {
+      model: payload.recommendationProvider || "local_recommendation",
+      provider: payload.recommendationProvider || "local_recommendation",
+      providerAttempts: payload.recommendationProviderAttempts || [],
+      confidence: typeof payload.recommendationConfidence === "number" ? payload.recommendationConfidence : 0.72,
+      reasoningSummary: payload.recommendationReasoningSummary || brief.closetUsageCopy || payload.closetUsageCopy || ""
+    }
   });
 }
 
 function publicImageJob(job, req) {
   if (!job) return null;
-  let imageAsset = job.imageAsset || null;
+  let imageAsset = rehydratePublicAsset(job.imageAsset || null, req);
   if (!imageAsset && job.imageUrl) {
     imageAsset = assetStore.getAssetByLocalPath(job.imageUrl, req);
   }
   const cacheVersion = job.updatedAt || job.createdAt || "";
   const versionedAsset = versionPublicAsset(imageAsset, cacheVersion);
+  const publicImageUrl = imageJobPresenter.publicGeneratedImageUrl(job, versionedAsset, req);
+  const recommendationId = job.recommendationId || (job.recommendationSnapshot && job.recommendationSnapshot.recommendationId) || "";
+  if (recommendationId && publicImageUrl && job.status === "ready") {
+    recommendationStore.bindImageJob(recommendationId, {
+      imageJobId: job.id,
+      generatedImageUrl: publicImageUrl
+    });
+  }
   return {
     id: job.id,
+    recommendationId,
+    scene: job.scene || "",
+    sourceMode: job.sourceMode || "wardrobe_first",
+    stylePreference: job.stylePreference || "",
+    userId: job.userId || "",
+    userName: job.userName || "",
+    outfitTitle: job.outfitTitle || "",
+    displayRecordTitle: imageJobPresenter.recordTitleFor(job),
     status: job.status,
-    imageUrl: versionedAsset ? versionedAsset.previewUrl : withCacheBust(job.imageUrl, cacheVersion),
+    imageUrl: publicImageUrl,
     imageAsset: versionedAsset,
     remoteImageUrl: job.remoteImageUrl || "",
+    providerImageUrl: job.providerImageUrl || "",
+    provider: job.provider || "",
+    providerAttempts: job.providerAttempts || [],
+    localizeStatus: job.localizeStatus || "",
+    localizeError: job.localizeError || "",
+    recommendationSnapshot: job.recommendationSnapshot || null,
     outfitBrief: job.outfitBrief || null,
     usedClosetItemIds: job.usedClosetItemIds || [],
     usedClosetItemLabels: job.usedClosetItemLabels || [],
     trendFillSlots: job.trendFillSlots || [],
     sourceMix: job.sourceMix || [],
-    errorMessage: job.errorMessage || ""
+    errorMessage: job.errorMessage || "",
+    createdAt: job.createdAt || "",
+    updatedAt: job.updatedAt || ""
   };
 }
 
@@ -1005,6 +1252,115 @@ function summarizeProviderRequest(job) {
   };
 }
 
+async function createClosetItemFromPublishedImage(published, file = {}, req, analysisHints = {}) {
+  const itemId = `c${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+  const analysis = await clothingAnalysis.analyzeClothingImage({
+    originalName: file.filename || "",
+    imageUrl: published.remoteUrl || published.localUrl,
+    localPath: published.localPath,
+    mimeType: published.mimeType,
+    ...analysisHints
+  });
+  const item = {
+    id: itemId,
+    itemId,
+    ...analysis,
+    usageCount: 0,
+    image: published.localUrl,
+    localImagePath: published.localPath,
+    publicImageUrl: published.remoteUrl || "",
+    imageAssetId: published.assetId,
+    imageSourceUrl: published.remoteUrl || published.localUrl,
+    imageLicense: "user_upload",
+    imageConfidence: analysis.analyzer,
+    analysisStatus: analysis.analysisStatus || "",
+    analysisMessage: analysis.analysisMessage || "",
+    analysisTimeoutMs: analysis.analysisTimeoutMs || 0,
+    analyzerError: analysis.analyzerError || "",
+    rawTags: analysis.rawTags || [],
+    rawColors: analysis.rawColors || [],
+    imageDownloadStatus: "local_ready",
+    fileServerError: published.fileServerError || ""
+  };
+  state.closetItems = [item, ...(state.closetItems || mock.closet)];
+  persistRuntimeState();
+  const publicItems = await closetAssets.publicClosetItems([item], req);
+  return {
+    item: closetDisplay.decorateClosetItem(publicItems[0] || item),
+    analysis
+  };
+}
+
+function closetAnalysisMessage(item = {}) {
+  if (item.analysisMessage) return item.analysisMessage;
+  const error = item.analyzerError || "";
+  if (/InvalidApi\.NotPurchase|not purchased|NotPurchase/i.test(error)) {
+    return "阿里云图像识别 API 未开通，已使用本地规则标签";
+  }
+  if (/timed out|timeout/i.test(error)) {
+    return "阿里云图像识别超时，已使用本地规则标签";
+  }
+  if (item.imageConfidence === "local_keyword_mvp") return "云识别未完成，已使用本地规则标签";
+  return "";
+}
+
+function withClosetAnalysisStatus(item = {}) {
+  const analysisMessage = closetAnalysisMessage(item);
+  let analysisStatus = item.analysisStatus || "";
+  if (!analysisStatus && item.imageConfidence === "aliyun_imagerecog") analysisStatus = "success";
+  if (!analysisStatus && analysisMessage) analysisStatus = "failed";
+  return {
+    ...item,
+    analysisStatus,
+    analysisMessage
+  };
+}
+
+async function createClosetItemsFromSegmentation(segmentation, parentPublished, req) {
+  if (!segmentation || segmentation.status !== "success" || !Array.isArray(segmentation.items)) {
+    return [];
+  }
+
+  const createdItems = [];
+  for (let index = 0; index < segmentation.items.length; index += 1) {
+    const segment = segmentation.items[index];
+    const sourceUrl = segment.imageUrl || segment.maskUrl || "";
+    if (!sourceUrl) continue;
+
+    const segmentId = `segmented-closet-${Date.now()}-${index}`;
+    const targetPath = `${assetStore.runtimePrefix}/storage/uploads/closet_segmented/${segmentId}.png`;
+    const downloaded = await imageDownloader.downloadImageToTarget(sourceUrl, targetPath);
+    const published = await publicImageService.publishLocalImage(downloaded.absolutePath, req, {
+      id: segmentId,
+      type: "closet_item",
+      group: "user_closet",
+      slot: segment.category || "unknown",
+      originalName: `${segment.aliyunClass || segment.category || "cloth"}-${index}.png`,
+      source: "closet_person_segmentation",
+      meta: {
+        parentAssetId: parentPublished.assetId,
+        parentImageUrl: parentPublished.remoteUrl || parentPublished.localUrl,
+        aliyunClass: segment.aliyunClass || "",
+        segmentCategory: segment.category || "",
+        segmentMaskUrl: segment.maskUrl || "",
+        segmentSourceUrl: sourceUrl
+      }
+    });
+    const created = await createClosetItemFromPublishedImage(published, {
+      filename: `${segment.aliyunClass || segment.category || "cloth"}-${index}.png`
+    }, req, {
+      categoryHint: segment.category || "",
+      segmentCategory: segment.category || "",
+      aliyunClass: segment.aliyunClass || ""
+    });
+    createdItems.push({
+      ...created,
+      segment
+    });
+  }
+  return createdItems;
+}
+
 async function submitPendingImageJob(job, req) {
   if (!job || job.status !== "pending") return job;
   if (!process.env.MOXING_API_KEY) {
@@ -1021,15 +1377,20 @@ async function submitPendingImageJob(job, req) {
   }
   console.log("[GEN-CONFIG] submit provider request", moxingImage.getDebugConfig());
   imageTaskStore.updateJob(job.id, { status: "submitted", promptContractStatus: "valid", promptContractMissing: [], errorMessage: "" });
-  const result = await moxingImage.submitImage(job);
+  const result = await imageGenerationService.submitImage(job);
   const localized = await localizeImageResult(job, result, req);
   return imageTaskStore.updateJob(job.id, {
     status: localized.status,
+    provider: result.provider || job.provider || "moxing",
     imageUrl: localized.imageUrl || job.imageUrl || "",
     imageAsset: localized.imageAsset || job.imageAsset || null,
     remoteImageUrl: localized.remoteImageUrl || job.remoteImageUrl || "",
+    providerImageUrl: localized.providerImageUrl || job.providerImageUrl || "",
     localImageBytes: localized.localImageBytes || job.localImageBytes || 0,
+    localizeStatus: localized.localizeStatus || job.localizeStatus || "",
+    localizeError: localized.localizeError || "",
     providerTaskId: result.taskId || "",
+    providerAttempts: result.providerAttempts || [],
     providerRequest: result.providerRequest,
     providerResponse: result.providerResponse,
     errorMessage: ""
@@ -1087,23 +1448,124 @@ async function localizeImageResult(job, result, req) {
     };
   }
 
-  const downloaded = await imageDownloader.downloadImageToTarget(resolvedImageUrl, job.targetPath);
-  const downloadedAsset = assetStore.registerUploadedAsset({
-    id: `generated-${job.id}`,
-    type: "generated_tryon",
-    group: "daily_tryon",
-    localPath: downloaded.localPath,
-    mimeType: downloaded.localPath.endsWith(".png") ? "image/png" : "image/jpeg",
-    source: "image_job",
-    meta: { imageJobId: job.id, userId: job.userId, scene: job.scene }
-  }, req);
-  return {
-    status: "ready",
-    imageUrl: downloadedAsset.previewUrl || downloadedAsset.url,
-    imageAsset: downloadedAsset,
-    remoteImageUrl: resolvedImageUrl,
-    localImageBytes: downloaded.bytes
-  };
+  try {
+    const downloaded = await imageDownloader.downloadImageToTarget(resolvedImageUrl, job.targetPath);
+    const published = await publicImageService.publishLocalImage(downloaded.absolutePath, req, {
+      id: `generated-${job.id}`,
+      type: "generated_tryon",
+      group: "daily_tryon",
+      originalName: path.basename(downloaded.absolutePath),
+      source: "image_job",
+      meta: {
+        imageJobId: job.id,
+        userId: job.userId,
+        scene: job.scene,
+        providerImageUrl: resolvedImageUrl
+      }
+    });
+    return {
+      status: "ready",
+      imageUrl: published.previewUrl || published.url,
+      imageAsset: published.asset,
+      remoteImageUrl: published.remoteUrl || resolvedImageUrl,
+      providerImageUrl: resolvedImageUrl,
+      localImageBytes: downloaded.bytes,
+      localizeStatus: published.remoteUrl ? "file_server_ready" : "local_ready",
+      localizeError: published.fileServerError || ""
+    };
+  } catch (error) {
+    if (!isRemoteImageUrl(resolvedImageUrl)) {
+      throw error;
+    }
+    console.log("[IMAGE-LOCALIZE] fallback to remote image", {
+      jobId: job.id,
+      remoteImageUrl: resolvedImageUrl,
+      errorMessage: error.message || "image localize failed"
+    });
+    return {
+      status: "ready",
+      imageUrl: resolvedImageUrl,
+      imageAsset: null,
+      remoteImageUrl: resolvedImageUrl,
+      localImageBytes: job.localImageBytes || 0,
+      localizeStatus: "remote_fallback",
+      localizeError: error.message || "image localize failed"
+    };
+  }
+}
+
+function extractRemoteImageUrlFromJob(job) {
+  if (!job) return "";
+  if (isRemoteImageUrl(job.remoteImageUrl)) return job.remoteImageUrl;
+  if (isRemoteImageUrl(job.imageUrl)) return job.imageUrl;
+  return moxingImage.extractImageUrl(job.providerResponse);
+}
+
+function shouldRecoverRemoteOnlyJob(job) {
+  if (!job) return false;
+  if (job.status === "ready" && job.imageUrl) return false;
+  const errorMessage = String(job.errorMessage || "");
+  return (
+    ["failed", "incomplete"].includes(job.status)
+    || errorMessage.includes("transparent PNG is too large")
+    || errorMessage.includes("image download failed")
+  );
+}
+
+async function recoverRemoteImageJobs(req, options = {}) {
+  const pollProvider = Boolean(options.pollProvider);
+  const jobs = imageTaskStore.listJobs();
+  const results = [];
+  for (const job of jobs) {
+    const directRemoteUrl = extractRemoteImageUrlFromJob(job);
+    if (directRemoteUrl && shouldRecoverRemoteOnlyJob(job)) {
+      const recovered = imageTaskStore.updateJob(job.id, {
+        status: "ready",
+        imageUrl: directRemoteUrl,
+        remoteImageUrl: directRemoteUrl,
+        imageAsset: null,
+        localizeStatus: "remote_recovered",
+        localizeError: job.errorMessage || "",
+        errorMessage: ""
+      });
+      results.push(publicImageJob(recovered, req));
+      continue;
+    }
+
+    const taskId = job.providerTaskId || job.providerResponse?.task_id || job.providerResponse?.id || "";
+    if (!pollProvider || !taskId || job.status === "ready") {
+      continue;
+    }
+
+    try {
+      const result = await moxingImage.pollImage(taskId);
+      const localized = await localizeImageResult(job, result, req);
+      let updated = imageTaskStore.updateJob(job.id, {
+        status: localized.status,
+        imageUrl: localized.imageUrl || job.imageUrl || "",
+        imageAsset: localized.imageAsset || job.imageAsset || null,
+        remoteImageUrl: localized.remoteImageUrl || job.remoteImageUrl || "",
+        providerImageUrl: localized.providerImageUrl || job.providerImageUrl || "",
+        localImageBytes: localized.localImageBytes || job.localImageBytes || 0,
+        localizeStatus: localized.localizeStatus || job.localizeStatus || "",
+        localizeError: localized.localizeError || "",
+        providerPollUrl: result.pollUrl || job.providerPollUrl,
+        providerResponse: result.providerResponse || job.providerResponse,
+        errorMessage: localized.status === "ready" ? "" : (job.errorMessage || "")
+      });
+      if (updated && updated.status === "ready") {
+        updated = consumeGenerationQuotaOnce(updated);
+      }
+      results.push(publicImageJob(updated, req));
+    } catch (error) {
+      const updated = imageTaskStore.updateJob(job.id, {
+        localizeError: error.message || "remote image recovery failed",
+        providerResponse: error.providerResponse || job.providerResponse
+      });
+      results.push(publicImageJob(updated, req));
+    }
+  }
+  return results;
 }
 
 const server = http.createServer(async (req, res) => {
@@ -1141,16 +1603,24 @@ const server = http.createServer(async (req, res) => {
       hasMoxingApiKey: Boolean(process.env.MOXING_API_KEY),
       hasAliyunAccessKeyId: Boolean(process.env.ALIBABA_CLOUD_ACCESS_KEY_ID || process.env.ALIYUN_ACCESS_KEY_ID),
       hasAliyunAccessKeySecret: Boolean(process.env.ALIBABA_CLOUD_ACCESS_KEY_SECRET || process.env.ALIYUN_ACCESS_KEY_SECRET),
-      hasFileServerUploadUrl: Boolean(process.env.FILE_SERVER_UPLOAD_URL),
-      hasFileServerUserName: Boolean(process.env.FILE_SERVER_USER_NAME),
-      hasFileServerUserKey: Boolean(process.env.FILE_SERVER_USER_KEY),
+      hasFileServerUploadUrl: Boolean(fileServerUploader.getFileServerConfig().uploadUrl),
+      hasFileServerUserName: Boolean(fileServerUploader.getFileServerConfig().userName),
+      hasFileServerUserKey: Boolean(fileServerUploader.getFileServerConfig().userKey),
+      hasAliyunOss: aliyunOssUploader.isAliyunOssConfigured(),
+      aliyunOssBucket: aliyunOssUploader.getAliyunOssConfig().bucket,
+      aliyunOssRegion: aliyunOssUploader.getAliyunOssConfig().region,
       hasWaveSpeedApiKey: Boolean(process.env.WAVESPEED_API_KEY),
       hasPhotoRoomApiKey: Boolean(process.env.PHOTOROOM_API_KEY),
       endpoints: [
         "GET /api/home",
         "GET /api/assets",
+        "GET /api/closet",
+        "GET /api/recommendations",
+        "GET /api/debug/mvp-readiness",
         "GET /api/test-users",
         "POST /api/assets/upload",
+        "POST /api/closet/items/upload",
+        "POST /api/closet/person-image/upload",
         "POST /api/test-users/active",
         "POST /api/generation/ad-unlock",
         "POST /api/subscription/plus",
@@ -1221,27 +1691,27 @@ const server = http.createServer(async (req, res) => {
     require("fs").mkdirSync(uploadDir, { recursive: true });
     const filePath = require("path").join(uploadDir, `${safeId}${ext}`);
     require("fs").writeFileSync(filePath, file.buffer);
-    let fileServerAsset = null;
-    let fileServerError = "";
-    try {
-      fileServerAsset = await fileServerUploader.uploadToFileServer(filePath, {
-        originalName: file.filename || `${safeId}${ext}`,
-        mimeType: file.contentType
-      });
-    } catch (error) {
-      fileServerError = error.message || "unknown file server upload error";
+    const published = await publicImageService.publishLocalImage(filePath, req, {
+      id: safeId,
+      type,
+      group,
+      slot,
+      originalName: file.filename || `${safeId}${ext}`,
+      source: "upload",
+      meta: { size: file.buffer.length }
+    });
+    if (published.fileServerError) {
       console.log("[FILE-SERVER-UPLOAD] failed", {
         type,
         slot,
         safeId,
-        message: fileServerError
+        message: published.fileServerError
       });
-      if (type === "body_scan") {
-        sendJson(res, 200, fail(`三视图上传失败，未能生成公网地址: ${fileServerError}`));
-        return;
-      }
     }
-    const localPath = assetStore.publicLocalPathForAbsolute(filePath);
+    if (type === "body_scan" && !published.remoteUrl) {
+      sendJson(res, 200, fail(`三视图上传失败，未能生成公网地址: ${published.fileServerError || "文件服务器未配置"}`));
+      return;
+    }
     let bodyScanVariants = {};
     let bodyScanVariantError = "";
     if (type === "body_scan") {
@@ -1260,25 +1730,15 @@ const server = http.createServer(async (req, res) => {
         bodyScanVariantError = error.message || "body scan variants create failed";
       }
     }
-    const asset = assetStore.registerUploadedAsset({
-      id: safeId,
-      type,
-      group,
-      slot,
-      localPath,
-      remoteUrl: fileServerAsset && fileServerAsset.publicUrl ? fileServerAsset.publicUrl : "",
-      mimeType: file.contentType,
-      originalName: file.filename,
-      source: "upload",
+    const asset = {
+      ...published.asset,
+      referenceUrl: published.remoteUrl || published.localUrl,
       meta: {
-        size: file.buffer.length,
-        fileServerUrl: fileServerAsset && fileServerAsset.publicUrl ? fileServerAsset.publicUrl : "",
-        fileServerId: fileServerAsset && fileServerAsset.id ? fileServerAsset.id : "",
-        fileServerError,
+        ...(published.asset.meta || {}),
         fitted: bodyScanVariants,
         fittedError: bodyScanVariantError
       }
-    }, req);
+    };
     if (type === "body_scan" && slot) {
       const currentUser = activeUser();
       const currentProfile = mergeBodyProfile(currentUser.bodyProfile || mock.bodyProfile, {});
@@ -1316,6 +1776,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && url.pathname === "/api/home") {
     const currentUser = activeUser();
+    await recoverRemoteImageJobs(req, { pollProvider: true });
     const scene = preferredHomeScene(currentUser.id);
     const bodyProfile = activeBodyProfile();
     sendJson(res, 200, ok({
@@ -1324,7 +1785,7 @@ const server = http.createServer(async (req, res) => {
       dailyAura: activeAura(),
       bodyProfile,
       dailyOutfit: attachOutfitBrief(outfitWithAsset(scene, req, currentUser.id), currentUser, bodyProfile, scene),
-      closetCount: mock.closet.length,
+      closetCount: (state.closetItems || mock.closet).length,
       trends: mock.trendItems,
       sceneOptions: mock.sceneOptions,
       quota: quota()
@@ -1360,8 +1821,17 @@ const server = http.createServer(async (req, res) => {
     }
     const targetUserId = body.userId || currentUser.id;
     const scene = body.scene || (currentUser.scenes || [])[0] || "上班";
-    const payload = generationPayload(scene, req, targetUserId);
-    let job = ensureImageJob(targetUserId, scene, { forceNew: Boolean(body.forceNew) });
+    const sourceMode = body.sourceMode === "free" ? "free" : "wardrobe_first";
+    const stylePreference = String(body.stylePreference || "").trim();
+    const generationOptions = { sourceMode, stylePreference };
+    const recommendationDraft = await imageJobPayload(targetUserId, scene, generationOptions);
+    const recommendation = createRecommendationFromPayload(recommendationDraft, generationOptions);
+    const generationOptionsWithRecommendation = {
+      ...generationOptions,
+      recommendationId: recommendation.id
+    };
+    const payload = generationPayload(scene, req, targetUserId, generationOptionsWithRecommendation);
+    let job = await ensureImageJob(targetUserId, scene, { forceNew: Boolean(body.forceNew), ...generationOptionsWithRecommendation });
     
     // DEBUG: Force log the prompt and reference images before submission
     console.log("[DEBUG-FORCE] Preparing to submit job. Prompt:", job.prompt);
@@ -1374,17 +1844,27 @@ const server = http.createServer(async (req, res) => {
       job = imageTaskStore.updateJob(job.id, {
         status: "failed",
         errorMessage: error.message || "image generation submit failed",
+        providerAttempts: error.attempts || job.providerAttempts || [],
         providerRequest: error.providerRequest || job.providerRequest,
         providerResponse: error.providerResponse || null
       });
     }
     const publicJob = publicImageJob(job, req);
+    if (publicJob) {
+      recommendationStore.bindImageJob(recommendation.id, {
+        imageJobId: publicJob.id,
+        generatedImageUrl: publicJob.imageUrl || ""
+      });
+    }
     if (job && job.status === "ready") {
       job = consumeGenerationQuotaOnce(job);
     }
     if (publicJob && publicJob.imageUrl) {
       payload.tryOnImage = publicJob.imageUrl;
       payload.tryOnAsset = publicJob.imageAsset || payload.tryOnAsset;
+    } else if (publicJob && ACTIVE_IMAGE_JOB_STATUS.includes(publicJob.status)) {
+      payload.tryOnImage = "";
+      payload.tryOnAsset = null;
     }
     payload.debugProviderRequest = summarizeProviderRequest(job);
     console.log("[GEN] /api/outfits/generate", {
@@ -1398,6 +1878,7 @@ const server = http.createServer(async (req, res) => {
       errorMessage: publicJob ? publicJob.errorMessage : ""
     });
     payload.imageJob = publicJob;
+    payload.recommendationId = recommendation.id;
     payload.quota = quota();
     sendJson(res, 200, ok(payload));
     return;
@@ -1412,14 +1893,27 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname.endsWith("/rating")) {
     const body = await readBody(req);
     const generation = state.generations[body.generationId] || null;
+    const ratedJob = imageTaskStore.listJobs().find((item) => item.id === body.generationId);
+    const recommendationId = body.recommendationId
+      || (generation && (generation.recommendationId || (generation.recommendationSnapshot && generation.recommendationSnapshot.recommendationId)))
+      || (ratedJob && ratedJob.recommendationId)
+      || "";
     const rating = {
       id: `rating-${Date.now()}`,
       generationId: body.generationId || "",
+      recommendationId,
       scores: body.scores || {},
       styleTags: body.styleTags || (generation && generation.styleTags) || [],
       createdAt: new Date().toISOString()
     };
     state.ratings.push(rating);
+    if (recommendationId) {
+      recommendationStore.saveFeedback(recommendationId, {
+        rating: Number((rating.scores || {}).fashion || 0) >= 4 ? "like" : "dislike",
+        scores: rating.scores,
+        styleTags: rating.styleTags
+      });
+    }
     const currentUser = activeUser();
     Object.assign(currentUser, lightCloset.updatePreferenceFromRating(currentUser, rating));
     persistRuntimeState();
@@ -1541,17 +2035,107 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "GET" && url.pathname === "/api/closet") {
+    const closetItems = await closetAssets.publicClosetItems(
+      (state.closetItems || mock.closet).map(withClosetAnalysisStatus),
+      req
+    );
+    const displayItems = closetItems.map(closetDisplay.decorateClosetItem);
     sendJson(res, 200, ok({
-      items: mock.closet,
+      items: displayItems,
       gaps: [
         "缺少一件轻薄防风短外套，适合出游和早晚温差。",
         "缺少米灰色高腰半裙，约会场景可以更柔和。",
         "银色小配饰较少，聚会场景缺少轻亮点。"
       ],
       stats: {
-        total: mock.closet.length,
+        total: (state.closetItems || mock.closet).length,
         colors: ["奶油白", "鼠尾草绿", "深靛蓝", "黑色"],
         readiness: 68
+      }
+    }));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/closet/items/upload") {
+    const raw = await readRawBody(req);
+    const parsed = parseMultipart(raw, req.headers["content-type"] || "");
+    const file = parsed.files[0];
+    if (!file || !file.buffer.length) {
+      sendJson(res, 200, fail("upload file is required"));
+      return;
+    }
+    const ext = path.extname(file.filename || "") || (file.contentType === "image/png" ? ".png" : ".jpg");
+    const itemId = `c${Date.now()}`;
+    const uploadDir = path.join(assetStore.uploadsDir, "closet");
+    fs.mkdirSync(uploadDir, { recursive: true });
+    const filePath = path.join(uploadDir, `${itemId}${ext}`);
+    fs.writeFileSync(filePath, file.buffer);
+    const published = await publicImageService.publishLocalImage(filePath, req, {
+      id: `closet-${itemId}`,
+      type: "closet_item",
+      group: "user_closet",
+      originalName: file.filename || `${itemId}${ext}`,
+      source: "closet_upload",
+      meta: {
+        closetItemId: itemId,
+        size: file.buffer.length
+      }
+    });
+    const created = await createClosetItemFromPublishedImage(published, file, req);
+    sendJson(res, 200, ok({
+      item: created.item,
+      analysis: created.analysis,
+      asset: published.asset,
+      uploadStatus: closetUploadPresenter.presentClosetUpload({ published, created })
+    }));
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/closet/person-image/upload") {
+    const raw = await readRawBody(req);
+    const parsed = parseMultipart(raw, req.headers["content-type"] || "");
+    const file = parsed.files[0];
+    if (!file || !file.buffer.length) {
+      sendJson(res, 200, fail("upload file is required"));
+      return;
+    }
+    const ext = path.extname(file.filename || "") || (file.contentType === "image/png" ? ".png" : ".jpg");
+    const uploadId = `person-closet-${Date.now()}`;
+    const uploadDir = path.join(assetStore.uploadsDir, "closet_person");
+    fs.mkdirSync(uploadDir, { recursive: true });
+    const filePath = path.join(uploadDir, `${uploadId}${ext}`);
+    fs.writeFileSync(filePath, file.buffer);
+    const published = await publicImageService.publishLocalImage(filePath, req, {
+      id: uploadId,
+      type: "closet_person_image",
+      group: "user_closet",
+      originalName: file.filename || `${uploadId}${ext}`,
+      source: "closet_person_upload",
+      meta: { size: file.buffer.length }
+    });
+    const segmentation = await clothingSegmentation.segmentClothingFromPersonImage({
+      imageUrl: published.remoteUrl || published.localUrl,
+      localPath: published.localPath,
+      mimeType: published.mimeType
+    });
+    const createdItems = await createClosetItemsFromSegmentation(segmentation, published, req);
+    sendJson(res, 200, ok({
+      status: segmentation.status,
+      segmentation,
+      createdItems,
+      asset: published.asset,
+      uploadStatus: {
+        remoteReady: Boolean(published.remoteUrl),
+        publicImageUrl: published.remoteUrl || published.localUrl || "",
+        remoteProvider: published.remoteProvider || "",
+        fileServerError: published.fileServerError || "",
+        aliyunOssError: published.aliyunOssError || "",
+        createdItemCount: createdItems.length,
+        blockers: [
+          ...(!published.remoteUrl ? ["public_image_url_missing"] : []),
+          ...(segmentation.status !== "success" ? ["clothing_segmentation_not_ready"] : []),
+          ...(!createdItems.length ? ["no_closet_items_created"] : [])
+        ]
       }
     }));
     return;
@@ -1603,12 +2187,45 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/image-jobs/recover-remote") {
+    const body = await readBody(req);
+    const items = await recoverRemoteImageJobs(req, { pollProvider: body.pollProvider !== false });
+    sendJson(res, 200, ok({ items }));
+    return;
+  }
+
   if (req.method === "GET" && url.pathname === "/api/image-jobs") {
+    await recoverRemoteImageJobs(req, { pollProvider: url.searchParams.get("pollProvider") !== "false" });
     sendJson(res, 200, ok({
       items: imageTaskStore
         .listJobs({ status: url.searchParams.get("status") || "" })
         .map((job) => publicImageJob(job, req))
     }));
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/recommendations") {
+    sendJson(res, 200, ok({
+      items: recommendationStore.listRecommendations({
+        userId: url.searchParams.get("userId") || "",
+        scene: url.searchParams.get("scene") || ""
+      }).slice(0, Number(url.searchParams.get("pageSize") || 20))
+    }));
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/debug/mvp-readiness") {
+    const pollProvider = url.searchParams.get("pollProvider") !== "false";
+    await recoverRemoteImageJobs(req, { pollProvider });
+    const rawJobs = imageTaskStore.listJobs();
+    const publicJobs = rawJobs.map((job) => publicImageJob(job, req));
+    const closetItems = (state.closetItems || mock.closet).map(withClosetAnalysisStatus);
+    sendJson(res, 200, ok(mvpDebugService.buildMvpReadinessReport({
+      imageJobs: rawJobs,
+      publicImageJobs: publicJobs,
+      recommendations: recommendationStore.listRecommendations({}),
+      closetItems
+    })));
     return;
   }
 
@@ -1623,7 +2240,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readBody(req);
     const scene = body.scene || "上班";
     const job = imageTaskStore.createJob({
-      ...imageJobPayload(body.userId || "user-a", scene),
+      ...(await imageJobPayload(body.userId || "user-a", scene)),
       source: body.source || "api"
     });
     sendJson(res, 200, ok(publicImageJob(job, req)));
@@ -1631,13 +2248,13 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "POST" && url.pathname === "/api/image-jobs/seed-test-users") {
-    const created = mock.manualImageJobs.map((item) =>
+    const created = await Promise.all(mock.manualImageJobs.map(async (item) =>
       imageTaskStore.createJob({
-        ...imageJobPayload(item.userId, item.scene),
+        ...(await imageJobPayload(item.userId, item.scene)),
         id: item.id,
         source: "seed"
       })
-    );
+    ));
     sendJson(res, 200, ok({ items: created }));
     return;
   }
@@ -1645,12 +2262,15 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname.match(/^\/api\/image-jobs\/[^/]+\/complete$/)) {
     const body = await readBody(req);
     const id = decodeURIComponent(url.pathname.split("/")[3]);
-    let job = imageTaskStore.updateJob(id, {
+    const patch = {
       status: "ready",
       imageUrl: body.imageUrl || body.localPath || "",
-      targetPath: body.targetPath,
       errorMessage: ""
-    });
+    };
+    if (body.targetPath) {
+      patch.targetPath = body.targetPath;
+    }
+    let job = imageTaskStore.updateJob(id, patch);
     if (job) {
       job = consumeGenerationQuotaOnce(job);
     }
@@ -1673,15 +2293,18 @@ const server = http.createServer(async (req, res) => {
     }
     try {
       imageTaskStore.updateJob(id, { status: "submitted", promptContractStatus: "valid", promptContractMissing: [], errorMessage: "" });
-      const result = await moxingImage.submitImage(job);
+      const result = await imageGenerationService.submitImage(job);
       const localized = await localizeImageResult(job, result, req);
       let updated = imageTaskStore.updateJob(id, {
         status: localized.status,
+        provider: result.provider || job.provider || "moxing",
         imageUrl: localized.imageUrl,
         imageAsset: localized.imageAsset || null,
         remoteImageUrl: localized.remoteImageUrl,
+        providerImageUrl: localized.providerImageUrl || "",
         localImageBytes: localized.localImageBytes,
         providerTaskId: result.taskId || "",
+        providerAttempts: result.providerAttempts || [],
         providerRequest: result.providerRequest,
         providerResponse: result.providerResponse,
         errorMessage: ""
@@ -1694,6 +2317,7 @@ const server = http.createServer(async (req, res) => {
       const failed = imageTaskStore.updateJob(id, {
         status: "failed",
         errorMessage: error.message || "moxing image generation failed",
+        providerAttempts: error.attempts || job.providerAttempts || [],
         providerRequest: error.providerRequest || job.providerRequest,
         providerResponse: error.providerResponse || null
       });
@@ -1713,15 +2337,20 @@ const server = http.createServer(async (req, res) => {
       }
       try {
         imageTaskStore.updateJob(job.id, { status: "submitted", promptContractStatus: "valid", promptContractMissing: [], errorMessage: "" });
-        const result = await moxingImage.submitImage(job);
+        const result = await imageGenerationService.submitImage(job);
         const localized = await localizeImageResult(job, result, req);
         let updated = imageTaskStore.updateJob(job.id, {
           status: localized.status,
+          provider: result.provider || job.provider || "moxing",
           imageUrl: localized.imageUrl,
           imageAsset: localized.imageAsset || null,
           remoteImageUrl: localized.remoteImageUrl,
+          providerImageUrl: localized.providerImageUrl || "",
           localImageBytes: localized.localImageBytes,
+          localizeStatus: localized.localizeStatus || "",
+          localizeError: localized.localizeError || "",
           providerTaskId: result.taskId || "",
+          providerAttempts: result.providerAttempts || [],
           providerRequest: result.providerRequest,
           providerResponse: result.providerResponse,
           errorMessage: ""
@@ -1734,6 +2363,7 @@ const server = http.createServer(async (req, res) => {
         results.push(imageTaskStore.updateJob(job.id, {
           status: "failed",
           errorMessage: error.message || "moxing image generation failed",
+          providerAttempts: error.attempts || job.providerAttempts || [],
           providerRequest: error.providerRequest || job.providerRequest,
           providerResponse: error.providerResponse || null
         }));
@@ -1766,7 +2396,10 @@ const server = http.createServer(async (req, res) => {
           imageUrl: localized.imageUrl || job.imageUrl || "",
           imageAsset: localized.imageAsset || job.imageAsset || null,
           remoteImageUrl: localized.remoteImageUrl || job.remoteImageUrl || "",
+          providerImageUrl: localized.providerImageUrl || job.providerImageUrl || "",
           localImageBytes: localized.localImageBytes || job.localImageBytes || 0,
+          localizeStatus: localized.localizeStatus || job.localizeStatus || "",
+          localizeError: localized.localizeError || "",
           errorMessage: ""
         });
         if (updated && updated.status === "ready") {
@@ -1787,7 +2420,10 @@ const server = http.createServer(async (req, res) => {
         imageUrl: localized.imageUrl || job.imageUrl || "",
         imageAsset: localized.imageAsset || job.imageAsset || null,
         remoteImageUrl: localized.remoteImageUrl || job.remoteImageUrl || "",
+        providerImageUrl: localized.providerImageUrl || job.providerImageUrl || "",
         localImageBytes: localized.localImageBytes || job.localImageBytes || 0,
+        localizeStatus: localized.localizeStatus || job.localizeStatus || "",
+        localizeError: localized.localizeError || "",
         providerPollUrl: result.pollUrl || job.providerPollUrl,
         providerResponse: result.providerResponse,
         errorMessage: ""
@@ -1821,7 +2457,10 @@ const server = http.createServer(async (req, res) => {
           imageUrl: localized.imageUrl || job.imageUrl || "",
           imageAsset: localized.imageAsset || job.imageAsset || null,
           remoteImageUrl: localized.remoteImageUrl || job.remoteImageUrl || "",
+          providerImageUrl: localized.providerImageUrl || job.providerImageUrl || "",
           localImageBytes: localized.localImageBytes || job.localImageBytes || 0,
+          localizeStatus: localized.localizeStatus || job.localizeStatus || "",
+          localizeError: localized.localizeError || "",
           providerPollUrl: result.pollUrl || job.providerPollUrl,
           providerResponse: result.providerResponse,
           errorMessage: ""
@@ -1867,6 +2506,8 @@ const server = http.createServer(async (req, res) => {
         imageAsset: asset,
         remoteImageUrl: sourceUrl,
         localImageBytes: downloaded.bytes,
+        localizeStatus: "local_ready",
+        localizeError: "",
         errorMessage: ""
       });
       updated = consumeGenerationQuotaOnce(updated);

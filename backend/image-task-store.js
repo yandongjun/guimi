@@ -35,6 +35,7 @@ function createJob(payload) {
   const now = new Date().toISOString();
   const job = {
     id,
+    recommendationId: payload.recommendationId || "",
     status: "pending",
     provider: payload.provider || "moxing",
     model: payload.model || "gpt-image-2",
@@ -57,9 +58,11 @@ function createJob(payload) {
     source: payload.source || "manual",
     providerRequest: payload.providerRequest || null,
     providerResponse: payload.providerResponse || null,
+    providerAttempts: payload.providerAttempts || [],
     providerTaskId: payload.providerTaskId || "",
     providerPollUrl: payload.providerPollUrl || "",
     remoteImageUrl: payload.remoteImageUrl || "",
+    providerImageUrl: payload.providerImageUrl || "",
     imageUrl: "",
     localImageBytes: 0,
     quotaConsumed: Boolean(payload.quotaConsumed),
